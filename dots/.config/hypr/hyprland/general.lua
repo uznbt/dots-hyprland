@@ -67,14 +67,36 @@ local function moveFocusedWindow(selector)
     hl.dsp.window.move({ workspace = selector, follow = true })
 end
 
--- Tanpa modifier: gesture bawaan Hyprland.
---   atas / bawah -> masuk / keluar dari special workspace
+-- Gesture 3 jari ke atas / ke bawah: jendela ikut ke special workspace
+-- (kalau sudah di special workspace, jendela balik lagi ke workspace biasa).
+-- Dipakai untuk versi tanpa modifier dan versi Super, supaya tetap jalan
+-- walau modifier-nya somehow nggak terdeteksi.
+local function toggleWindowIntoSpecialWorkspace()
+    local win = focusedWindow()
+    if not win then
+        return
+    end
+
+    if windowInSpecialWorkspace(win) then
+        -- Keluar dari special workspace, kembali ke workspace biasa aktif.
+        local normal = hl.get_active_workspace()
+        moveFocusedWindow(normal and normal.name or "prev")
+    else
+        -- Masuk ke special workspace, jendela ikut ke sana.
+        moveFocusedWindow(SPECIAL_WORKSPACE)
+    end
+end
+
+-- Tanpa modifier:
+--   atas / bawah -> jendela ikut ke special workspace
 --   kiri / kanan -> ganti workspace (dari special tetap di special)
 hl.gesture({
     fingers = 3,
     direction = "vertical",
-    action = "special",
-    workspace_name = "special"
+    action = function()
+        print("[gesture] 3 jari vertikal tanpa modifier")
+        toggleWindowIntoSpecialWorkspace()
+    end
 })
 hl.gesture({
     fingers = 3,
@@ -88,21 +110,23 @@ hl.gesture({
     direction = "vertical",
     mods = "SUPER",
     action = function()
-        local win = focusedWindow()
-        if not win then
-            return
-        end
-
-        if windowInSpecialWorkspace(win) then
-            -- Keluar dari special workspace, kembali ke workspace biasa aktif.
-            local normal = hl.get_active_workspace()
-            moveFocusedWindow(normal and normal.name or "prev")
-        else
-            -- Masuk ke special workspace, jendela ikut ke sana.
-            moveFocusedWindow(SPECIAL_WORKSPACE)
-        end
+        print("[gesture] 3 jari vertikal dengan SUPER")
+        toggleWindowIntoSpecialWorkspace()
     end
 })
+
+-- Diagnostik: modifier lain yang mungkin terdeteksiHyprland saat gesture
+-- jalan. Cuma buat logging, tidak melakukan apa-apa.
+for _, probeMods in ipairs({ "SUPER SHIFT", "CTRL", "CTRL SUPER", "ALT", "ALT SUPER", "SHIFT" }) do
+    hl.gesture({
+        fingers = 3,
+        direction = "vertical",
+        mods = probeMods,
+        action = function()
+            print("[gesture] 3 jari vertikal terdeteksi dengan mods='" .. probeMods .. "'")
+        end
+    })
+end
 
 -- Super + 3 jari ke kiri: jendela pindah ke workspace sebelah.
 -- Kalau sedang di special workspace, cari special workspace sebelah dulu;
@@ -403,7 +427,8 @@ hl.config({
 
         touchpad = {
             natural_scroll = true,
-            disable_while_typing = true,
+            -- Touchpad tetap jalan While lu ngetik.
+            disable_while_typing = false,
             clickfinger_behavior = true,
             scroll_factor = 0.7
         }
