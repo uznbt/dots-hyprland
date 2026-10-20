@@ -18,12 +18,24 @@ NestableObject {
     readonly property var specialWorkspace: liveMonitorData?.specialWorkspace
     readonly property string specialWorkspaceName: specialWorkspace?.name.replace("special:", "") ?? "special"
     readonly property bool specialWorkspaceActive: specialWorkspaceName !== ""
-    // Semua special workspace yang ada di monitor ini (mis. "special",
-    // "music"), urut berdasarkan nama.
-    readonly property var specialWorkspaces: Hyprland.workspaces.values
-        .filter(ws => (ws.name ?? "").startsWith("special:") && (ws.monitor?.id ?? -1) === monitor.id)
-        .map(ws => ws.name.replace("special:", ""))
-        .sort()
+    // Special workspace yang selalu ditampilkan di bar. Hyprland menghapus
+    // special workspace yang kosong, jadi tanpa daftar ini ikonnya ikut
+    // hilang begitu isinya kosong (mis. scratchpad "special").
+    readonly property var knownSpecialWorkspaces: ["music", "special"]
+    // Semua special workspace di monitor ini, digabung dengan daftar di atas.
+    readonly property var specialWorkspaces: {
+        const result = [];
+        const add = name => {
+            if (name && result.indexOf(name) === -1)
+                result.push(name);
+        };
+        root.knownSpecialWorkspaces.forEach(add);
+        Hyprland.workspaces.values.forEach(ws => {
+            if ((ws.name ?? "").startsWith("special:") && (ws.monitor?.id ?? -1) === root.monitor.id)
+                add(ws.name.replace("special:", ""));
+        });
+        return result.sort();
+    }
 
     property list<bool> occupied: []
     property list<var> biggestWindow: occupied.map((_, index) => {

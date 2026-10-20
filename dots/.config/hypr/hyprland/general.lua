@@ -132,15 +132,33 @@ local function toggleWindowIntoSpecialWorkspace()
     moveFocusedWindow(target)
 end
 
--- Nama-nama special workspace yang ada (tanpa prefix "special:").
+-- Special workspace yang selalu ikut di siklus gesture, walau Hyprland
+-- menghapusnya saat kosong.
+local KNOWN_SPECIAL_WORKSPACES = { "music", "special" }
+
+-- Nama-nama special workspace (tanpa prefix "special:"): yang dikenal +
+-- yang benar-benar ada saat ini.
 local function specialWorkspaces()
+    local seen = {}
     local list = {}
+
+    local function add(name)
+        if name and name ~= "" and not seen[name] then
+            seen[name] = true
+            list[#list + 1] = name
+        end
+    end
+
+    for _, name in ipairs(KNOWN_SPECIAL_WORKSPACES) do
+        add(name)
+    end
     for _, ws in ipairs(hl.get_workspaces()) do
         local name = ws.name or ""
         if name:sub(1, 8) == "special:" then
-            list[#list + 1] = name:sub(9)
+            add(name:sub(9))
         end
     end
+
     table.sort(list)
     return list
 end
