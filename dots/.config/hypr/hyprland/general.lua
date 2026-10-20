@@ -25,6 +25,21 @@ hl.monitor({
 
 local SPECIAL_WORKSPACE = "special:special"
 
+-- Log ke file: print() Hyprland kena filter kategori INFO, jadi tidak muncul
+-- di hyprland.log.
+local GESTURE_LOG = "/tmp/opencode/gesture.log"
+
+local function logGesture(msg)
+    pcall(function()
+        local file = io.open(GESTURE_LOG, "a")
+        if not file then
+            return
+        end
+        file:write(tostring(msg) .. "\n")
+        file:close()
+    end)
+end
+
 -- Jendela yang sedang fokus, atau nil kalau tidak ada.
 local function focusedWindow()
     return hl.get_active_window()
@@ -74,17 +89,25 @@ end
 local function toggleWindowIntoSpecialWorkspace()
     local win = focusedWindow()
     if not win then
+        logGesture("  !! tidak ada jendela fokus")
         return
     end
 
-    if windowInSpecialWorkspace(win) then
+    local inSpecial = windowInSpecialWorkspace(win)
+    local target
+    if inSpecial then
         -- Keluar dari special workspace, kembali ke workspace biasa aktif.
         local normal = hl.get_active_workspace()
-        moveFocusedWindow(normal and normal.name or "prev")
+        target = normal and normal.name or "prev"
     else
         -- Masuk ke special workspace, jendela ikut ke sana.
-        moveFocusedWindow(SPECIAL_WORKSPACE)
+        target = SPECIAL_WORKSPACE
     end
+
+    logGesture("  -> move ke '" .. tostring(target) .. "' (dari ws '" ..
+        tostring(win.workspace and win.workspace.name or "?") .. "', special=" .. tostring(inSpecial))
+
+    moveFocusedWindow(target)
 end
 
 -- Tanpa modifier:
@@ -94,8 +117,11 @@ hl.gesture({
     fingers = 3,
     direction = "vertical",
     action = function()
-        print("[gesture] 3 jari vertikal tanpa modifier")
+        logGesture("3 jari vertikal, tanpa modifier")
         toggleWindowIntoSpecialWorkspace()
+        local after = focusedWindow()
+        logGesture("  sesudah: win=" .. tostring(after and after.class or "NIL") ..
+            " ws=" .. tostring(after and after.workspace and after.workspace.name or "NIL"))
     end
 })
 hl.gesture({
@@ -110,8 +136,11 @@ hl.gesture({
     direction = "vertical",
     mods = "SUPER",
     action = function()
-        print("[gesture] 3 jari vertikal dengan SUPER")
+        logGesture("3 jari vertikal, dengan SUPER")
         toggleWindowIntoSpecialWorkspace()
+        local after = focusedWindow()
+        logGesture("  sesudah: win=" .. tostring(after and after.class or "NIL") ..
+            " ws=" .. tostring(after and after.workspace and after.workspace.name or "NIL"))
     end
 })
 
@@ -123,7 +152,7 @@ for _, probeMods in ipairs({ "SUPER SHIFT", "CTRL", "CTRL SUPER", "ALT", "ALT SU
         direction = "vertical",
         mods = probeMods,
         action = function()
-            print("[gesture] 3 jari vertikal terdeteksi dengan mods='" .. probeMods .. "'")
+            logGesture("3 jari vertikal, mods='" .. probeMods .. "'")
         end
     })
 end
