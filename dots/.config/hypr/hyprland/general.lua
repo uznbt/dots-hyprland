@@ -7,21 +7,123 @@ hl.monitor({
 })
 
 -- Gesture 3 jari:
---   ke atas / ke bawah -> masuk atau keluar dari special workspace (scratchpad)
---   ke samping         -> ganti workspace
--- Dipisah per arah supaya dari special workspace masih bisa balik ke
--- workspace biasa (geser ke atas/bawah untuk menutup special workspace).
+--   atas / bawah  -> jendela masuk ke / keluar dari special workspace (scratchpad)
+--   kiri / kanan  -> jendela pindah ke workspace sebelah, dan ikut ke sana
+--
+-- Gesture bawaan Hyprland tidak bisa melakukan ini: action "move" bawaan cuma
+-- menggeser jendela di dalam layout, action "special" cuma membuka/menutup
+-- special workspace tanpa memindahkan jendela. Jadi gesture-nya dibuat dengan
+-- fungsi Lua.
+
+local SPECIAL_WORKSPACE = "special:special"
+
+-- Jendela yang sedang fokus, atau nil kalau tidak ada.
+local function focusedWindow()
+    return hl.get_active_window()
+end
+
+-- true kalau jendela fokus berada di special workspace.
+local function windowInSpecialWorkspace(win)
+    if not win then
+        return false
+    end
+    local ws = win.workspace
+    return ws ~= nil and ws.special == true
+end
+
+-- Special workspace di sebelahnya, kalau ada lebih dari satu.
+local function adjacentSpecialWorkspace(current, step)
+    local list = {}
+    for _, ws in ipairs(hl.get_workspaces()) do
+        if ws.special then
+            list[#list + 1] = ws
+        end
+    end
+    table.sort(list, function(a, b)
+        return a.id < b.id
+    end)
+
+    for i, ws in ipairs(list) do
+        if ws.id == current.id then
+            return list[i + step]
+        end
+    end
+    return nil
+end
+
+-- Pindahkan jendela fokus ke workspace tujuan, sekalian ikut pindah ke sana.
+local function moveFocusedWindow(selector)
+    if not focusedWindow() then
+        return
+    end
+    hl.dsp.window.move({ workspace = selector, follow = true })
+end
+
+-- 3 jari ke atas / ke bawah: masuk ke atau keluar dari special workspace.
 hl.gesture({
     fingers = 3,
     direction = "vertical",
-    action = "special",
-    workspace_name = "special"
+    action = function()
+        local win = focusedWindow()
+        if not win then
+            return
+        end
+
+        if windowInSpecialWorkspace(win) then
+            -- Keluar dari special workspace, kembali ke workspace biasa aktif.
+            local normal = hl.get_active_workspace()
+            moveFocusedWindow(normal and normal.name or "prev")
+        else
+            -- Masuk ke special workspace, jendela ikut ke sana.
+            moveFocusedWindow(SPECIAL_WORKSPACE)
+        end
+    end
 })
+
+-- 3 jari ke kiri: jendela pindah ke workspace sebelah.
+-- Kalau sedang di special workspace, cari special workspace sebelah dulu;
+-- kalau tidak ada, pakai workspace biasa sebelah.
 hl.gesture({
     fingers = 3,
-    direction = "horizontal",
-    action = "workspace"
+    direction = "left",
+    action = function()
+        local win = focusedWindow()
+        if not win then
+            return
+        end
+
+        if windowInSpecialWorkspace(win) then
+            local target = adjacentSpecialWorkspace(win.workspace, -1)
+            if target then
+                moveFocusedWindow(target.name)
+                return
+            end
+        end
+        moveFocusedWindow("r-1")
+    end
 })
+
+-- 3 jari ke kanan: jendela pindah ke workspace sebelah.
+hl.gesture({
+    fingers = 3,
+    direction = "right",
+    action = function()
+        local win = focusedWindow()
+        if not win then
+            return
+        end
+
+        if windowInSpecialWorkspace(win) then
+            local target = adjacentSpecialWorkspace(win.workspace, 1)
+            if target then
+                moveFocusedWindow(target.name)
+                return
+            end
+        end
+        moveFocusedWindow("r+1")
+    end
+})
+
 hl.gesture({
     fingers = 3,
     direction = "pinch",
