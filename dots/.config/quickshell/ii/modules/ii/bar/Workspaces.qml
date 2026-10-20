@@ -58,10 +58,10 @@ ButtonMouseArea {
     }
 
     function toggleSpecial() {
-        // Toggle special workspace yang lagi aktif (mis. "music"), kalau
-        // nggak ada special yang aktif pakai scratchpad "special".
-        const active = wsModel.specialWorkspace?.name?.replace("special:", "") || "special";
-        Hyprland.dispatch(`hl.dsp.workspace.toggle_special("${active}")`);
+        // Tombol ini buat scratchpad "special". Kalau lagi di special workspace
+        // lain (mis. "music"), ini akan buka scratchpad-nya, bukan nutup
+        // special workspace yang lagi aktif.
+        Hyprland.dispatch(`hl.dsp.workspace.toggle_special("special")`);
     }
 
     onPressed: mouse => {
@@ -293,7 +293,10 @@ ButtonMouseArea {
         columns: root.vertical ? 1 : Math.max(1, wsModel.specialWorkspaces.length)
         rowSpacing: 4
         columnSpacing: 4
-        visible: wsModel.specialWorkspaces.length > 0
+        // Pill special workspace cuma muncul kalau lagi ada special workspace
+        // yang aktif, sama seperti sebelumnya. Kalau aktif, semua special
+        // workspace ditampilkan (yang aktif disorot).
+        visible: wsModel.specialWorkspaceActive && wsModel.specialWorkspaces.length > 0
 
         Repeater {
             model: wsModel.specialWorkspaces
