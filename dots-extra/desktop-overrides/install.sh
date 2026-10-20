@@ -30,8 +30,21 @@ mkdir -p "${DEST_DIR}"
 
 for file in "${SRC_DIR}"/*.desktop; do
     name="$(basename "${file}")"
+    # File autostart-*.desktop dipasang ke ~/.config/autostart, bukan ke
+    # ~/.local/share/applications.
+    [[ "${name}" == autostart-* ]] && continue
     echo "Memasang override: ${DEST_DIR}/${name}"
     sed "s|/home/uznbt|${HOME}|g" "${file}" > "${DEST_DIR}/${name}"
 done
+
+# Override autostart (WhatsZan), supaya app yang start otomatis juga memakai
+# wrapper low-RAM.
+AUTOSTART_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/autostart"
+if [[ -f "${SRC_DIR}/autostart-WhatsZan.desktop" ]]; then
+    mkdir -p "${AUTOSTART_DIR}"
+    echo "Memasang override: ${AUTOSTART_DIR}/WhatsZan.desktop"
+    sed "s|/home/uznbt|${HOME}|g" "${SRC_DIR}/autostart-WhatsZan.desktop" \
+        > "${AUTOSTART_DIR}/WhatsZan.desktop"
+fi
 
 echo "Selesai. Restart aplikasi yang sudah berjalan agar flag baru dipakai."

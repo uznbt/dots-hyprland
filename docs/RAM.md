@@ -93,7 +93,8 @@ Spotify, dan WhatsZan:
 
 | File | Lokasi |
 | --- | --- |
-| Override | `~/.local/share/applications/*.desktop` |
+| Override aplikasi | `~/.local/share/applications/*.desktop` |
+| Override autostart | `~/.config/autostart/WhatsZan.desktop` |
 | Sumber | `dots-extra/desktop-overrides/` |
 | Pasang ulang | `dots-extra/desktop-overrides/install.sh` |
 

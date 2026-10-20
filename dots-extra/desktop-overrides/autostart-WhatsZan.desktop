@@ -1,0 +1,19 @@
+[Desktop Entry]
+Categories=Network;Chat;InstantMessaging;X-WhatsApp;
+Comment[id_ID]=Unofficial lightweight WhatsApp desktop client for Linux
+Comment=Unofficial lightweight WhatsApp desktop client for Linux
+Exec=/home/uznbt/.config/hypr/hyprland/scripts/electron-lowram.sh /opt/WhatsZan/whatszan --hide %U
+GenericName[id_ID]=WhatsApp Client
+GenericName=WhatsApp Client
+Icon=whatsapp
+MimeType=
+Name[id_ID]=WhatsZan
+Name=WhatsZan
+Path=
+StartupNotify=true
+StartupWMClass=WhatsZan
+Terminal=false
+TerminalOptions=
+Type=Application
+X-KDE-SubstituteUID=false
+X-KDE-Username=
