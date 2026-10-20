@@ -31,7 +31,27 @@ ButtonMouseArea {
     property real workspaceIconOpacityShrinked: 1
     property real workspaceIconMarginShrinked: -4
     property int workspaceIndexInGroup: (monitor?.activeWorkspace?.id - 1) % wsModel.shownCount
-    property real specialTextSize: workspaceButtonWidth * 0.5
+    property real specialWorkspaceIconSize: workspaceButtonWidth * 0.62
+
+    // Ikon buat special workspace di bar (nama Material Symbols).
+    function specialWorkspaceIcon(name) {
+        switch ((name || "").toLowerCase()) {
+        case "music":
+            return "music_note";
+        case "special":
+            return "sticky_note_2";
+        case "communication":
+            return "forum";
+        case "todo":
+            return "checklist";
+        case "sysmon":
+            return "monitor_heart";
+        case "tools":
+            return "build";
+        default:
+            return "bookmark";
+        }
+    }
 
     Layout.alignment: vertical ? Qt.AlignHCenter : Qt.AlignVCenter
     Layout.fillWidth: vertical
@@ -40,7 +60,10 @@ ButtonMouseArea {
     implicitWidth: vertical ? barThickness : occupiedIndicators.implicitWidth
     implicitHeight: vertical ? occupiedIndicators.implicitHeight : barThickness
 
-    property real specialBlur: (wsModel.specialWorkspaceActive && !containsMouse) ? 1 : 0
+    // Selama ada special workspace yang aktif, indikator workspace biasa
+    // tetap diredupkan walau kursor ada di bar (dulu balik jelas waktu
+    // di-hover, jadi angka 1..10 nutupin pill special workspace).
+    property real specialBlur: wsModel.specialWorkspaceActive ? 1 : 0
     Behavior on specialBlur {
         animation: Appearance.animation.elementMoveSmall.numberAnimation.createObject(this)
     }
@@ -306,33 +329,20 @@ ButtonMouseArea {
 
                 readonly property bool isActive: wsModel.specialWorkspaceName === modelData
 
-                property real undirectionalWidth: root.activeWorkspaceSize
-                property real undirectionalLength: {
-                    const base = root.workspaceButtonWidth * Math.min(1.35, wsModel.shownCount);
-                    if (root.vertical)
-                        return base;
-                    return specialWsText.implicitWidth + undirectionalWidth;
-                }
-
                 scale: isActive ? 1 : 0.85
                 opacity: isActive ? 1 : 0.5
                 Behavior on opacity {} // Don't animate, as specialBlur is already animated
                 Behavior on scale {}
 
                 color: isActive ? Appearance.colors.colPrimary : Appearance.colors.colLayer0
-                implicitWidth: root.vertical ? undirectionalWidth : undirectionalLength
-                implicitHeight: root.vertical ? undirectionalLength : undirectionalWidth
+                implicitWidth: root.activeWorkspaceSize
+                implicitHeight: root.activeWorkspaceSize
 
-                StyledText {
-                    id: specialWsText
+                MaterialSymbol {
                     anchors.centerIn: parent
-                    text: root.vertical ? specialWsPill.modelData.substr(0, 1).toUpperCase() : specialWsPill.modelData
+                    text: root.specialWorkspaceIcon(specialWsPill.modelData)
                     color: specialWsPill.isActive ? Appearance.colors.colOnPrimary : Appearance.colors.colOnLayer0
-                    font.pixelSize: root.specialTextSize
-                }
-
-                Behavior on undirectionalLength {
-                    animation: Appearance.animation.elementMoveEnter.numberAnimation.createObject(this)
+                    iconSize: root.specialWorkspaceIconSize
                 }
 
                 // Pill ini bisa diklik: pindah ke special workspace yang
