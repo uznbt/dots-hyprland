@@ -6,10 +6,21 @@ hl.monitor({
     scale = 1
 })
 
+-- Gesture 3 jari:
+--   ke atas / ke bawah -> masuk atau keluar dari special workspace (scratchpad)
+--   ke samping         -> ganti workspace
+-- Dipisah per arah supaya dari special workspace masih bisa balik ke
+-- workspace biasa (geser ke atas/bawah untuk menutup special workspace).
 hl.gesture({
     fingers = 3,
-    direction = "swipe",
-    action = "move"
+    direction = "vertical",
+    action = "special",
+    workspace_name = "special"
+})
+hl.gesture({
+    fingers = 3,
+    direction = "horizontal",
+    action = "workspace"
 })
 hl.gesture({
     fingers = 3,
