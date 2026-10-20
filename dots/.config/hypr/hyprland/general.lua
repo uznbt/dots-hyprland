@@ -132,19 +132,94 @@ local function toggleWindowIntoSpecialWorkspace()
     moveFocusedWindow(target)
 end
 
--- TANPA modifier: gesture bawaan Hyprland, aplikasinya TIDAK ikut pindah.
---   atas / bawah -> masuk / keluar dari special workspace (scratchpad)
---   kiri / kanan -> ganti workspace
+-- Nama-nama special workspace yang ada (tanpa prefix "special:").
+local function specialWorkspaces()
+    local list = {}
+    for _, ws in ipairs(hl.get_workspaces()) do
+        local name = ws.name or ""
+        if name:sub(1, 8) == "special:" then
+            list[#list + 1] = name:sub(9)
+        end
+    end
+    table.sort(list)
+    return list
+end
+
+-- Nama special workspace yang lagi aktif, atau nil kalau nggak ada.
+local function activeSpecialName()
+    local ws = hl.get_active_special_workspace()
+    if not ws then
+        return nil
+    end
+    local name = ws.name or ""
+    if name:sub(1, 8) ~= "special:" then
+        return nil
+    end
+    return name:sub(9)
+end
+
+-- 3 jari ke kiri / kanan:
+--   di workspace biasa   -> ganti workspace biasa
+--   di special workspace -> pindah antar special workspace (mis. special <-> music)
+local function switchWorkspaceHorizontal(step)
+    local special = activeSpecialName()
+    if special then
+        local list = specialWorkspaces()
+        if #list < 2 then
+            return
+        end
+
+        local idx = 1
+        for i, name in ipairs(list) do
+            if name == special then
+                idx = i
+                break
+            end
+        end
+
+        local target = list[((idx - 1 + step) % #list) + 1]
+        if target and target ~= special then
+            logGesture("3 jari horizontal: special '" .. special .. "' -> '" .. target .. "'")
+            hl.dispatch(hl.dsp.focus({ workspace = "special:" .. target }))
+        end
+        return
+    end
+
+    logGesture("3 jari horizontal: ganti workspace biasa")
+    hl.dispatch(hl.dsp.focus({ workspace = step < 0 and "r-1" or "r+1" }))
+end
+
+-- TANPA modifier: aplikasinya TIDAK ikut pindah.
+--   atas / bawah -> masuk ke special workspace, atau keluar lagi ke workspace
+--                   biasa kalau sedang di special workspace
+--   kiri / kanan -> ganti workspace biasa, atau pindah antar special workspace
 hl.gesture({
     fingers = 3,
     direction = "vertical",
-    action = "special",
-    workspace_name = "special"
+    action = function()
+        local special = activeSpecialName()
+        if special then
+            logGesture("3 jari vertikal: keluar dari special '" .. special .. "'")
+            hl.dispatch(hl.dsp.workspace.toggle_special(special))
+        else
+            logGesture("3 jari vertikal: masuk ke special 'special'")
+            hl.dispatch(hl.dsp.workspace.toggle_special("special"))
+        end
+    end
 })
 hl.gesture({
     fingers = 3,
-    direction = "horizontal",
-    action = "workspace"
+    direction = "left",
+    action = function()
+        switchWorkspaceHorizontal(-1)
+    end
+})
+hl.gesture({
+    fingers = 3,
+    direction = "right",
+    action = function()
+        switchWorkspaceHorizontal(1)
+    end
 })
 
 -- DENGAN Super: jendelanya yang ikut pindah.

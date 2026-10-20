@@ -286,38 +286,51 @@ ButtonMouseArea {
         }
     }
 
-    FadeLoader {
+    /////////////////// Special workspaces (scratchpad, music, ...) ///////////////////
+    Grid {
+        id: specialWorkspacesGrid
         anchors.centerIn: parent
-        shown: wsModel.specialWorkspaceActive
-        scale: 0.8 + 0.2 * root.specialBlur
+        columns: root.vertical ? 1 : Math.max(1, wsModel.specialWorkspaces.length)
+        rowSpacing: 4
+        columnSpacing: 4
+        visible: wsModel.specialWorkspaces.length > 0
 
-        opacity: root.specialBlur
-        Behavior on opacity {} // Don't animate, as specialBlur is already animated
+        Repeater {
+            model: wsModel.specialWorkspaces
+            delegate: Pill {
+                id: specialWsPill
+                required property string modelData
 
-        sourceComponent: Pill {
-            anchors.centerIn: parent
-            property real undirectionalWidth: root.activeWorkspaceSize
-            property real undirectionalLength: {
-                const base = root.workspaceButtonWidth * Math.min(1.35, wsModel.shownCount); // Who tf only configures only 2 workspaces shown anyway?
-                if (root.vertical)
-                    return base;
-                return specialWsText.implicitWidth + undirectionalWidth;
-            }
-            color: Appearance.colors.colPrimary
+                readonly property bool isActive: wsModel.specialWorkspaceName === modelData
 
-            implicitWidth: root.vertical ? undirectionalWidth : undirectionalLength
-            implicitHeight: root.vertical ? undirectionalLength : undirectionalWidth
+                property real undirectionalWidth: root.activeWorkspaceSize
+                property real undirectionalLength: {
+                    const base = root.workspaceButtonWidth * Math.min(1.35, wsModel.shownCount);
+                    if (root.vertical)
+                        return base;
+                    return specialWsText.implicitWidth + undirectionalWidth;
+                }
 
-            StyledText {
-                id: specialWsText
-                anchors.centerIn: parent
-                text: (!root.vertical ? wsModel.specialWorkspaceName : "S")
-                color: Appearance.colors.colOnPrimary
-                font.pixelSize: root.specialTextSize
-            }
+                scale: isActive ? 1 : 0.85
+                opacity: isActive ? 1 : 0.5
+                Behavior on opacity {} // Don't animate, as specialBlur is already animated
+                Behavior on scale {}
 
-            Behavior on undirectionalLength {
-                animation: Appearance.animation.elementMoveEnter.numberAnimation.createObject(this)
+                color: isActive ? Appearance.colors.colPrimary : Appearance.colors.colLayer0
+                implicitWidth: root.vertical ? undirectionalWidth : undirectionalLength
+                implicitHeight: root.vertical ? undirectionalLength : undirectionalWidth
+
+                StyledText {
+                    id: specialWsText
+                    anchors.centerIn: parent
+                    text: root.vertical ? specialWsPill.modelData.substr(0, 1).toUpperCase() : specialWsPill.modelData
+                    color: specialWsPill.isActive ? Appearance.colors.colOnPrimary : Appearance.colors.colOnLayer0
+                    font.pixelSize: root.specialTextSize
+                }
+
+                Behavior on undirectionalLength {
+                    animation: Appearance.animation.elementMoveEnter.numberAnimation.createObject(this)
+                }
             }
         }
     }

@@ -18,6 +18,12 @@ NestableObject {
     readonly property var specialWorkspace: liveMonitorData?.specialWorkspace
     readonly property string specialWorkspaceName: specialWorkspace?.name.replace("special:", "") ?? "special"
     readonly property bool specialWorkspaceActive: specialWorkspaceName !== ""
+    // Semua special workspace yang ada di monitor ini (mis. "special",
+    // "music"), urut berdasarkan nama.
+    readonly property var specialWorkspaces: Hyprland.workspaces.values
+        .filter(ws => (ws.name ?? "").startsWith("special:") && (ws.monitor?.id ?? -1) === monitor.id)
+        .map(ws => ws.name.replace("special:", ""))
+        .sort()
 
     property list<bool> occupied: []
     property list<var> biggestWindow: occupied.map((_, index) => {
