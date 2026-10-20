@@ -67,8 +67,17 @@ ApplicationWindow {
     ]
     property int currentPage: 0
 
+    // When the window is hosted inside a running shell instance (opened over
+    // IPC) it must not quit the whole shell when it is closed. The shell sets
+    // this to false right after loading the window. Standalone usage
+    // (`qs -p settings.qml`) keeps the default of true.
+    property bool standalone: true
+
     visible: true
-    onClosing: Qt.quit()
+    onClosing: {
+        if (standalone)
+            Qt.quit();
+    }
     title: "illogical-impulse Settings"
 
     Component.onCompleted: {

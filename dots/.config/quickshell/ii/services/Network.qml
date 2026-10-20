@@ -163,7 +163,13 @@ Singleton {
     Process {
         id: subscriber
         running: true
-        command: ["nmcli", "monitor"]
+        // `nmcli monitor` never exits on its own and Quickshell does not kill
+        // its child processes when the shell dies, so a plain
+        // `command: ["nmcli", "monitor"]` leaves an orphaned monitor behind on
+        // every reload/restart (~10 MB RSS each). The helper script below
+        // runs the monitor under a watchdog that cleans it up when either
+        // Quickshell or the script itself goes away.
+        command: ["bash", Quickshell.shellPath("scripts/network/monitor.sh")]
         stdout: SplitParser {
             onRead: root.update()
         }

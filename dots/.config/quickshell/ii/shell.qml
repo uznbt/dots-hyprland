@@ -58,6 +58,58 @@ ShellRoot {
     }
 
 
+    // Settings window.
+    // The settings app used to be a separate `qs -p settings.qml` process.
+    // That is expensive: it loads a second copy of every service and widget
+    // on top of the running shell (~400 MB of extra RSS). Here the window is
+    // hosted inside the shell and opened over IPC, so it reuses everything
+    // that is already in memory.
+    Loader {
+        id: settingsLoader
+        active: false
+        source: "settings.qml"
+        onLoaded: {
+            // Let the window know it is hosted by the shell, so closing it
+            // does not terminate the whole shell.
+            item.standalone = false;
+            // A Loader does not manage the visibility of non-Item objects,
+            // so the window has to be shown explicitly.
+            item.show();
+            item.raise();
+            item.requestActivate();
+            item.closing.connect(() => unloadSettingsTimer.restart());
+        }
+    }
+
+    Timer {
+        id: unloadSettingsTimer
+        interval: 150
+        // Free the window (and its memory) shortly after it was closed.
+        onTriggered: settingsLoader.active = false
+    }
+
+    IpcHandler {
+        target: "settings"
+
+        // NOTE: the function must not be called "show" - quickshell does not
+        // dispatch IPC calls to a function with that name.
+        function open(): void {
+            if (!settingsLoader.active) {
+                settingsLoader.active = true;
+            } else if (settingsLoader.item) {
+                settingsLoader.item.show();
+                settingsLoader.item.raise();
+                settingsLoader.item.requestActivate();
+            }
+        }
+
+        function close(): void {
+            if (settingsLoader.item)
+                settingsLoader.item.close();
+        }
+    }
+
+
     // Shortcuts
     IpcHandler {
         target: "panelFamily"

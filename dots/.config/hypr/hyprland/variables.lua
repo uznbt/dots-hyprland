@@ -13,7 +13,11 @@ codeEditor = "~/.config/hypr/hyprland/scripts/launch_first_available.sh 'windsur
 officeSoftware = "~/.config/hypr/hyprland/scripts/launch_first_available.sh 'wps' 'onlyoffice-desktopeditors' 'libreoffice'"
 textEditor = "~/.config/hypr/hyprland/scripts/launch_first_available.sh 'kate' 'gnome-text-editor' 'emacs'"
 volumeMixer = "~/.config/hypr/hyprland/scripts/launch_first_available.sh 'pavucontrol-qt' 'pavucontrol'"
-settingsApp = "XDG_CURRENT_DESKTOP=gnome ~/.config/hypr/hyprland/scripts/launch_first_available.sh 'qs -p ~/.config/quickshell/$qsConfig/settings.qml' 'systemsettings' 'gnome-control-center' 'better-control'"
+-- The settings window is hosted by the running shell and opened over IPC.
+-- Starting a separate `qs -p settings.qml` process would load a second copy of
+-- every service and widget (~400 MB extra RSS), so it is only used as a
+-- fallback when the shell is not running at all.
+settingsApp = "sh -c 'qs -c $qsConfig ipc call settings open || qs -p ~/.config/quickshell/$qsConfig/settings.qml'"
 taskManager = "~/.config/hypr/hyprland/scripts/launch_first_available.sh 'gnome-system-monitor' 'plasma-systemmonitor --page-name Processes' 'command -v btop && kitty -1 fish -c btop'"
 
 workspaceGroupSize = 10
