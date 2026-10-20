@@ -334,6 +334,17 @@ ButtonMouseArea {
                 Behavior on undirectionalLength {
                     animation: Appearance.animation.elementMoveEnter.numberAnimation.createObject(this)
                 }
+
+                // Pill ini bisa diklik: pindah ke special workspace yang
+                // bersangkutan, atau tutup kalau yang diklik memang yang lagi
+                // aktif. Tanpa ini klik tembus ke workspace indicator di
+                // belakangnya.
+                ButtonMouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        Hyprland.dispatch(`hl.dsp.workspace.toggle_special("${specialWsPill.modelData}")`);
+                    }
+                }
             }
         }
     }
