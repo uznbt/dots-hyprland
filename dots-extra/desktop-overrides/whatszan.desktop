@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=WhatsZan
+Exec=/home/uznbt/.config/hypr/hyprland/scripts/electron-lowram.sh /opt/WhatsZan/whatszan %U
+Terminal=false
+Type=Application
+Icon=whatszan
+StartupWMClass=WhatsZan
+Comment=WhatsZan Desktop Client
+Categories=Network;Chat;InstantMessaging;
+MimeType=x-scheme-handler/whatsapp;
