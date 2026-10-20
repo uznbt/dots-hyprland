@@ -24,3 +24,6 @@ __pycache__/
 *.bak
 .idea/
 .vscode/
+
+# Temporary clones used for reference
+/shell
