@@ -76,10 +76,28 @@ end
 
 -- Pindahkan jendela fokus ke workspace tujuan, sekalian ikut pindah ke sana.
 local function moveFocusedWindow(selector)
-    if not focusedWindow() then
+    local win = focusedWindow()
+    if not win then
+        logGesture("  !! moveFocusedWindow: tidak ada jendela fokus")
         return
     end
-    hl.dsp.window.move({ workspace = selector, follow = true })
+
+    local before = win.workspace and win.workspace.name or "?"
+    local result = hl.dsp.window.move({ workspace = selector, follow = true })
+    local after = focusedWindow()
+    local newWs = after and after.workspace and after.workspace.name or "NIL"
+
+    logGesture("  move('" .. tostring(selector) .. "') ok=" .. tostring(result and result.ok) ..
+        " err=" .. tostring(result and result.error) ..
+        " | ws " .. tostring(before) .. " -> " .. tostring(newWs))
+
+    if newWs == before then
+        -- Panggilan langsung dari dalam callback gesture kadang nggak
+        -- bereffect, jadi ulangi lewat subprocess (konteks terpisah).
+        logGesture("  belum berganti, ulang via hyprctl dispatch")
+        hl.dsp.exec_raw("hyprctl dispatch 'hl.dsp.window.move({workspace = \"" ..
+            tostring(selector) .. "\", follow = true})'")
+    end
 end
 
 -- Gesture 3 jari ke atas / ke bawah: jendela ikut ke special workspace
