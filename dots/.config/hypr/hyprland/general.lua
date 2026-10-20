@@ -6,14 +6,22 @@ hl.monitor({
     scale = 1
 })
 
--- Gesture 3 jari:
---   atas / bawah  -> jendela masuk ke / keluar dari special workspace (scratchpad)
---   kiri / kanan  -> jendela pindah ke workspace sebelah, dan ikut ke sana
+-- Gesture 3 jari.
 --
--- Gesture bawaan Hyprland tidak bisa melakukan ini: action "move" bawaan cuma
--- menggeser jendela di dalam layout, action "special" cuma membuka/menutup
--- special workspace tanpa memindahkan jendela. Jadi gesture-nya dibuat dengan
--- fungsi Lua.
+-- TANPA modifier:
+--   atas / bawah -> masuk / keluar dari special workspace (scratchpad)
+--   kiri / kanan -> ganti workspace. Kalau sedang di special workspace,
+--                   special workspace-nya tetap terbuka di atas, jadi kamu
+--                   tetap di special.
+--
+-- DENGAN Super ditekan:
+--   atas / bawah -> jendela fokus ikut ke special workspace (atau balik lagi)
+--   kiri / kanan -> jendela fokus pindah ke workspace sebelah, ikut ke sana
+--
+-- Untuk versi tanpa modifier dipakai gesture bawaan Hyprland ("special" dan
+-- "workspace") karena sudah ada animasi workspace swipe-nya. Memindahkan
+-- jendela ke workspace lain tidak ada gesture bawaannya, jadi versi Super
+-- dibuat dengan fungsi Lua.
 
 local SPECIAL_WORKSPACE = "special:special"
 
@@ -59,10 +67,26 @@ local function moveFocusedWindow(selector)
     hl.dsp.window.move({ workspace = selector, follow = true })
 end
 
--- 3 jari ke atas / ke bawah: masuk ke atau keluar dari special workspace.
+-- Tanpa modifier: gesture bawaan Hyprland.
+--   atas / bawah -> masuk / keluar dari special workspace
+--   kiri / kanan -> ganti workspace (dari special tetap di special)
 hl.gesture({
     fingers = 3,
     direction = "vertical",
+    action = "special",
+    workspace_name = "special"
+})
+hl.gesture({
+    fingers = 3,
+    direction = "horizontal",
+    action = "workspace"
+})
+
+-- Super + 3 jari ke atas / ke bawah: jendela ikut ke special workspace.
+hl.gesture({
+    fingers = 3,
+    direction = "vertical",
+    mods = "SUPER",
     action = function()
         local win = focusedWindow()
         if not win then
@@ -80,12 +104,13 @@ hl.gesture({
     end
 })
 
--- 3 jari ke kiri: jendela pindah ke workspace sebelah.
+-- Super + 3 jari ke kiri: jendela pindah ke workspace sebelah.
 -- Kalau sedang di special workspace, cari special workspace sebelah dulu;
 -- kalau tidak ada, pakai workspace biasa sebelah.
 hl.gesture({
     fingers = 3,
     direction = "left",
+    mods = "SUPER",
     action = function()
         local win = focusedWindow()
         if not win then
@@ -103,10 +128,11 @@ hl.gesture({
     end
 })
 
--- 3 jari ke kanan: jendela pindah ke workspace sebelah.
+-- Super + 3 jari ke kanan: jendela pindah ke workspace sebelah.
 hl.gesture({
     fingers = 3,
     direction = "right",
+    mods = "SUPER",
     action = function()
         local win = focusedWindow()
         if not win then
