@@ -88,12 +88,20 @@ ButtonMouseArea {
     }
 
     onPressed: mouse => {
-        if (mouse.button == Qt.LeftButton)
+        if (mouse.button == Qt.LeftButton) {
+            // Kalau lagi di special workspace, klik kiri di area indikator
+            // jangan fokus workspace biasa: Hyprland menutup special
+            // workspace-nya begitu workspace biasa difokuskan
+            // (binds:hide_special_on_workspace_change). Pill special
+            // workspace punya handler kliknya sendiri.
+            if (wsModel.specialWorkspaceActive)
+                return;
             switchWorkspaceToHovered();
-        else if (mouse.button == Qt.RightButton)
+        } else if (mouse.button == Qt.RightButton) {
             GlobalStates.overviewOpen = !GlobalStates.overviewOpen;
-        else if (mouse.button == Qt.BackButton) 
-            toggleSpecial()
+        } else if (mouse.button == Qt.BackButton) {
+            toggleSpecial();
+        }
     }
     onWheel: event => {
         if (event.angleDelta.y < 0)
@@ -351,6 +359,10 @@ ButtonMouseArea {
                 // belakangnya.
                 ButtonMouseArea {
                     anchors.fill: parent
+                    // Area klik sengaja dibesarkan dikit: pill-nya cuma 22px
+                    // dan yang nggak aktif di-scale 0.85, jadi klik di pinggir
+                    // gampang meleset ke indikator workspace di belakangnya.
+                    anchors.margins: -3
                     onClicked: {
                         Hyprland.dispatch(`hl.dsp.workspace.toggle_special("${specialWsPill.modelData}")`);
                     }
