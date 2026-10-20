@@ -100,6 +100,12 @@ local function moveFocusedWindow(selector)
     end
 end
 
+-- Batalin "search on release". Tanpa ini, Super + swipe tetap membuka overlay
+-- search waktu Super dilepas.
+local function interruptSuperSearch()
+    hl.dispatch(hl.dsp.global("quickshell:searchToggleReleaseInterrupt"))
+end
+
 -- Gesture Super + 3 jari ke atas / ke bawah: jendela ikut ke special workspace
 -- (kalau sudah di special workspace, jendela balik lagi ke workspace biasa).
 local function toggleWindowIntoSpecialWorkspace()
@@ -148,22 +154,10 @@ hl.gesture({
     mods = "SUPER",
     action = function()
         logGesture("3 jari vertikal, dengan SUPER")
+        interruptSuperSearch()
         toggleWindowIntoSpecialWorkspace()
     end
 })
-
--- Diagnostik: modifier lain yang mungkin terdeteksi Hyprland saat gesture
--- jalan. Cuma buat logging, tidak melakukan apa-apa.
-for _, probeMods in ipairs({ "SUPER SHIFT", "CTRL", "CTRL SUPER", "ALT", "ALT SUPER", "SHIFT" }) do
-    hl.gesture({
-        fingers = 3,
-        direction = "vertical",
-        mods = probeMods,
-        action = function()
-            logGesture("3 jari vertikal, mods='" .. probeMods .. "'")
-        end
-    })
-end
 
 -- Super + 3 jari ke kiri: jendela pindah ke workspace sebelah.
 -- Kalau sedang di special workspace, cari special workspace sebelah dulu;
@@ -177,6 +171,8 @@ hl.gesture({
         if not win then
             return
         end
+
+        interruptSuperSearch()
 
         if windowInSpecialWorkspace(win) then
             local target = adjacentSpecialWorkspace(win.workspace, -1)
@@ -199,6 +195,8 @@ hl.gesture({
         if not win then
             return
         end
+
+        interruptSuperSearch()
 
         if windowInSpecialWorkspace(win) then
             local target = adjacentSpecialWorkspace(win.workspace, 1)
