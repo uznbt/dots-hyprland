@@ -243,6 +243,11 @@ hl.bind("SUPER + ALT + S",
     hl.dsp.window.move({ workspace = "special:special", follow = false }), { description = "Window: Send to scratchpad" })
 hl.bind("CTRL + SUPER + S", hl.dsp.workspace.toggle_special("special"))
 
+-- Music workspace (special:music) - Spotify selalu dibuka di sini.
+hl.bind("CTRL + SUPER + M", hl.dsp.workspace.toggle_special("music"), { description = "Workspace: Toggle music" })
+hl.bind("CTRL + SUPER + ALT + M",
+    hl.dsp.window.move({ workspace = "special:music", follow = false }), { description = "Window: Send to music workspace" })
+
 --##! Workspace
 --# Switching
 --#/# bind = SUPER, Hash,, -- Focus workspace -- (1, 2, 3,...)

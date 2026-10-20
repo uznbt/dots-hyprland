@@ -58,7 +58,10 @@ ButtonMouseArea {
     }
 
     function toggleSpecial() {
-        Hyprland.dispatch(`hl.dsp.workspace.toggle_special("special")`);
+        // Toggle special workspace yang lagi aktif (mis. "music"), kalau
+        // nggak ada special yang aktif pakai scratchpad "special".
+        const active = wsModel.specialWorkspace?.name?.replace("special:", "") || "special";
+        Hyprland.dispatch(`hl.dsp.workspace.toggle_special("${active}")`);
     }
 
     onPressed: mouse => {

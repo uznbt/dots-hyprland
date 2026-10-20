@@ -56,6 +56,10 @@ hl.window_rule({match = {class = "^(plasma-changeicons)$" }, move = {999999, 999
 -- stupid dolphin copy
 hl.window_rule({match = {title = "^(Copying — Dolphin)$" }, move = {40, 80}})
 
+-- Spotify -> special workspace "music" (special:music), sama kayak
+-- scratchpad "special". Toggle pakai CTRL + SUPER + M.
+hl.window_rule({match = {class = "^(Spotify)$" }, workspace = "special:music"})
+
 -- Tiling
 hl.window_rule({match = {class = "^dev\\.warp\\.Warp$" }, tile = true})
 
