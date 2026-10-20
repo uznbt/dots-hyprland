@@ -1,0 +1,26 @@
+/diagnose.result
+/cache
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+
+/dots/.config/quickshell/ii/.qmlls.ini
+
+# exp-update
+/.update-lock
+
+# custom os-release
+/os-release
+
+# Emacs auto backup file
+*~
+
+# Local config backups
+/.backups/
+
+# Local editor / OS noise
+.DS_Store
+*.bak
+.idea/
+.vscode/
