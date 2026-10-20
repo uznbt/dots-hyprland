@@ -40,6 +40,8 @@ ButtonMouseArea {
             return "music_note";
         case "special":
             return "sticky_note_2";
+        case "chat":
+            return "chat";
         case "communication":
             return "forum";
         case "todo":

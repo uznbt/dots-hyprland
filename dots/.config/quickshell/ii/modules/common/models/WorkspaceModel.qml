@@ -21,7 +21,7 @@ NestableObject {
     // Special workspace yang selalu ditampilkan di bar. Hyprland menghapus
     // special workspace yang kosong, jadi tanpa daftar ini ikonnya ikut
     // hilang begitu isinya kosong (mis. scratchpad "special").
-    readonly property var knownSpecialWorkspaces: ["music", "special"]
+    readonly property var knownSpecialWorkspaces: ["chat", "music", "special"]
     // Semua special workspace di monitor ini, digabung dengan daftar di atas.
     readonly property var specialWorkspaces: {
         const result = [];

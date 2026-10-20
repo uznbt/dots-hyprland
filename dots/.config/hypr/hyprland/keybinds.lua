@@ -248,6 +248,11 @@ hl.bind("CTRL + SUPER + M", hl.dsp.workspace.toggle_special("music"), { descript
 hl.bind("CTRL + SUPER + ALT + M",
     hl.dsp.window.move({ workspace = "special:music", follow = false }), { description = "Window: Send to music workspace" })
 
+-- Chat workspace (special:chat) - WhatsApp (WhatsZan) selalu dibuka di sini.
+hl.bind("CTRL + SUPER + W", hl.dsp.workspace.toggle_special("chat"), { description = "Workspace: Toggle chat" })
+hl.bind("CTRL + SUPER + ALT + W",
+    hl.dsp.window.move({ workspace = "special:chat", follow = false }), { description = "Window: Send to chat workspace" })
+
 --##! Workspace
 --# Switching
 --#/# bind = SUPER, Hash,, -- Focus workspace -- (1, 2, 3,...)

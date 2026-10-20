@@ -60,6 +60,10 @@ hl.window_rule({match = {title = "^(Copying — Dolphin)$" }, move = {40, 80}})
 -- scratchpad "special". Toggle pakai CTRL + SUPER + M.
 hl.window_rule({match = {class = "^(Spotify)$" }, workspace = "special:music"})
 
+-- WhatsApp (WhatsZan) -> special workspace "chat" (special:chat).
+-- Toggle pakai CTRL + SUPER + W.
+hl.window_rule({match = {class = "^(WhatsZan)$" }, workspace = "special:chat"})
+
 -- Tiling
 hl.window_rule({match = {class = "^dev\\.warp\\.Warp$" }, tile = true})
 
