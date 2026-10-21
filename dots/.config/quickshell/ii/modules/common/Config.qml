@@ -465,6 +465,35 @@ Singleton {
                 property int historyLength: 60
             }
 
+            // Tuning performa mesin (RAM / VRAM / CPU).
+            // Nilai di sini adalah state UI; yang benar-benar diterapkan ke
+            // sistem ada di /etc/ii-performance.conf (lihat scripts/performance).
+            property JsonObject performance: JsonObject {
+                property JsonObject memory: JsonObject {
+                    // Batas untuk aplikasi Chromium/Electron (Brave, Spotify, WhatsZan).
+                    property int rendererLimit: 2
+                    property int jsHeapMb: 512
+                    property int diskCacheMb: 64
+                    // Persentase RAM yang dipakai zram (10-100).
+                    property int zramSizePercent: 100
+                    // vm.swappiness (0-200).
+                    property int swappiness: 150
+                }
+                property JsonObject graphics: JsonObject {
+                    // Blur Hyprland (berat untuk GPU, hemat VRAM).
+                    property bool blur: true
+                    // Batas frekuensi iGPU dalam persen (10-100).
+                    property int gpuFrequencyPercent: 100
+                }
+                property JsonObject cpu: JsonObject {
+                    // battery | balanced | performance
+                    property string profile: "balanced"
+                    property bool boost: true
+                    // Batas frekuensi maksimum dalam persen (20-100).
+                    property int maxFrequencyPercent: 100
+                }
+            }
+
             property JsonObject tray: JsonObject {
                 property bool monochromeIcons: true
                 property bool showItemId: false

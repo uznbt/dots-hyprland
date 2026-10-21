@@ -137,6 +137,10 @@ dipindah ke RAM terkompresi, bukan ke disk. **Tidak diubah.**
 Kalau masih sering swapping, turunkan `zram-size` ke `50%` (atau `max` 4G)
 supaya RAM tidak terlalu banyak dipakai untuk data terkompresi.
 
+> Semua angka di atas (zram, swappiness, batas renderer, blur, governor CPU)
+> sekarang bisa diubah dari tab **Performance** di aplikasi pengaturan shell.
+> Lihat `docs/PERFORMANCE.md`.
+
 ---
 
 ## 4. Cara memverifikasi
