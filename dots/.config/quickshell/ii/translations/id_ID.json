@@ -490,6 +490,7 @@
   "Fuzzy": "Fuzzy",
   "Discord": "Discord",
   "Performance": "Performa",
+  "Changing system settings asks for your administrator password. The zram size only changes after a reboot when memory is already tight.": "Mengubah pengaturan sistem akan meminta kata sandi administrator. Ukuran zram baru berlaku setelah restart kalau memori sedang padat.",
   "Memory (RAM)": "Memori (RAM)",
   "Chromium and Electron apps": "Aplikasi Chromium dan Electron",
   "Applies to Brave, Spotify and WhatsZan. The apps have to be closed completely for the new limits to be used.": "Berlaku untuk Brave, Spotify, dan WhatsZan. Aplikasi harus ditutup penuh supaya batas yang baru dipakai.",
@@ -518,6 +519,5 @@
   "Limits the maximum frequency of the processor. 100% means the full range is available.": "Membatasi frekuensi maksimum processor. 100% berarti seluruh rentang frekuensi tersedia.",
   "Currently: %1 RAM, %2 zram (%3%), swappiness %4, governor %5, boost %6": "Saat ini: %1 RAM, %2 zram (%3%), swappiness %4, governor %5, turbo boost %6",
   "The new zram size is saved and is applied the next time the machine boots.": "Ukuran zram yang baru sudah disimpan dan akan dipakai saat komputer dinyalakan berikutnya.",
-  "The change could not be applied: %1": "Perubahan tidak bisa diterapkan: %1",
-  "Changing system settings asks for your administrator password.": "Mengubah pengaturan sistem akan meminta kata sandi administrator."
+  "The change could not be applied: %1": "Perubahan tidak bisa diterapkan: %1"
 }
