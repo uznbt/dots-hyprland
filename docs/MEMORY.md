@@ -32,6 +32,23 @@ Bar + dua sidebar saja sudah menyumbang ~150 MB.
 | `resources.updateInterval` 5000 → 10000 ms | Polling separuh lebih sering |
 | `resources.historyLength` 60 → 30 | History RAM/CPU/swap setengahnya |
 
+## 3. Optimasi lanjutan (putaran kedua)
+
+| Perubahan | Efek |
+| --- | --- |
+| Family panel `waffle` (~140 file QML) tidak lagi dikompilasi saat start | hemat ±15–25 MB; tetap bisa dipakai kalau `panelFamily` diganti |
+| Uptime hanya diperbarui tiap 60 detik (dulu 10 detik, baca `/proc/uptime` terus) | lebih sedikit I/O & alokasi |
+| Watchdog `nmcli monitor` cek tiap 5 detik (dulu 2 detik) | setengah spawn proses |
+| Cek update tiap 6 jam (dulu 2 jam) | lebih jarang lonjakan pacman DB |
+| Indikator RAM/swap/CPU yang dimatikan tidak dipoll | seperti sebelumnya |
+
+Catatan penting soal angka: PSS shell **naik-turun 100+ MB antar restart** di mesin ini
+(sistem sedang pakai swap). Yang bisa dibandingkan hanya angka dari proses yang sama,
+bukan antar restart. Yang paling bisa diandalkan: jumlah objek/QML yang dibuat.
+
+Selain itu, tiap **reload** (bukan restart) menahan sekitar 3–5 MB. Kalau shell sudah
+lama hidup dan sering di-reload, restart penuh sekali akan mengembalikan memori itu.
+
 ## 3. Yang masih bisa ditarik (urut dari yang paling murah)
 
 | Lever | Potensi | Cara |

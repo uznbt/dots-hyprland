@@ -26,7 +26,9 @@ Singleton {
     property string uptime: "0h, 0m"
 
     Timer {
-        interval: 10
+        // Uptime cukup diperbarui per menit; sebelumnya 10 detik dan tetap
+        // membaca /proc/uptime setiap kali.
+        interval: 60000
         running: true
         repeat: true
         onTriggered: {
@@ -48,7 +50,7 @@ Singleton {
             if (minutes > 0 || !formatted)
                 formatted += `${formatted ? ", " : ""}${minutes}m`;
             uptime = formatted;
-            interval = Config.options?.resources?.updateInterval ?? 3000;
+            interval = 60000;
         }
     }
 

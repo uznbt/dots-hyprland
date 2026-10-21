@@ -35,7 +35,7 @@ setsid bash -c '
     self=$2
     target=$3
     while kill -0 "$owner" 2>/dev/null && kill -0 "$self" 2>/dev/null; do
-        sleep 2
+        sleep 5
     done
     kill "$target" 2>/dev/null
     exit 0
@@ -43,7 +43,7 @@ setsid bash -c '
 
 # Tunggu parent (quickshell) mati, lalu rapikan.
 while kill -0 "$owner_pid" 2>/dev/null; do
-    sleep 2
+    sleep 5
 done
 
 kill "$monitor_pid" 2>/dev/null

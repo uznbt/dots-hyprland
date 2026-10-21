@@ -47,14 +47,17 @@ ShellRoot {
         active: Config.ready && Config.options.panelFamily === identifier && extraCondition
     }
     
+    // Pakai `source` (bukan `component`) supaya family yang tidak dipakai
+    // tidak ikut dikompilasi saat shell start. Family "waffle" berisi ~140
+    // file QML yang tidak perlu dimuat kalau kita memakai "ii".
     PanelFamilyLoader {
         identifier: "ii"
-        component: IllogicalImpulseFamily {}
+        source: "panelFamilies/IllogicalImpulseFamily.qml"
     }
 
     PanelFamilyLoader {
         identifier: "waffle"
-        component: WaffleFamily {}
+        source: "panelFamilies/WaffleFamily.qml"
     }
 
 
