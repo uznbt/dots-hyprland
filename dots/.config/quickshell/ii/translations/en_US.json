@@ -611,5 +611,11 @@
   "Use varying shapes for password characters": "Use varying shapes for password characters",
   "Battery full": "Battery full",
   "Pin": "Pin",
-  "Unpin": "Unpin"
+  "Unpin": "Unpin",
+  "Resource indicators": "Resource indicators",
+  "Show in the bar": "Show in the bar",
+  "Choose which resource indicators are shown in the bar.": "Choose which resource indicators are shown in the bar.",
+  "RAM": "RAM",
+  "Swap": "Swap",
+  "CPU": "CPU"
 }

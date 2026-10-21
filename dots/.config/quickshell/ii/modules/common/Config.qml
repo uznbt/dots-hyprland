@@ -246,6 +246,12 @@ Singleton {
                 property bool verbose: true
                 property bool vertical: false
                 property JsonObject resources: JsonObject {
+                    // Tampilan indikator di bar: RAM, swap, dan CPU.
+                    property bool showMemory: true
+                    property bool showSwap: true
+                    property bool showCpu: true
+                    // Indikator swap/CPU disembunyikan sementara kalau musik
+                    // sedang diputar, kecuali Always show ... diaktifkan.
                     property bool alwaysShowSwap: true
                     property bool alwaysShowCpu: true
                     property int memoryWarningThreshold: 95

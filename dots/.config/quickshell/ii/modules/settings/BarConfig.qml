@@ -252,6 +252,43 @@ ContentPage {
     }
 
     ContentSection {
+        icon: "monitoring"
+        title: Translation.tr("Resource indicators")
+
+        ContentSubsection {
+            title: Translation.tr("Show in the bar")
+            tooltip: Translation.tr("Choose which resource indicators are shown in the bar.")
+
+            ConfigSwitch {
+                buttonIcon: "memory"
+                text: Translation.tr("RAM")
+                checked: Config.options.bar.resources.showMemory
+                onCheckedChanged: {
+                    Config.options.bar.resources.showMemory = checked;
+                }
+            }
+
+            ConfigSwitch {
+                buttonIcon: "swap_horiz"
+                text: Translation.tr("Swap")
+                checked: Config.options.bar.resources.showSwap
+                onCheckedChanged: {
+                    Config.options.bar.resources.showSwap = checked;
+                }
+            }
+
+            ConfigSwitch {
+                buttonIcon: "planner_review"
+                text: Translation.tr("CPU")
+                checked: Config.options.bar.resources.showCpu
+                onCheckedChanged: {
+                    Config.options.bar.resources.showCpu = checked;
+                }
+            }
+        }
+    }
+
+    ContentSection {
         icon: "workspaces"
         title: Translation.tr("Workspaces")
 

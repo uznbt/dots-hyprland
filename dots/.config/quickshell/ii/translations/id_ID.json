@@ -488,5 +488,11 @@
   "Colors": "Warna",
   "Monitors": "Monitor",
   "Fuzzy": "Fuzzy",
-  "Discord": "Discord"
+  "Discord": "Discord",
+  "Resource indicators": "Indikator sumber daya",
+  "Show in the bar": "Tampilkan di bar",
+  "Choose which resource indicators are shown in the bar.": "Pilih indikator sumber daya mana yang ditampilkan di bar.",
+  "RAM": "RAM",
+  "Swap": "Swap",
+  "CPU": "CPU"
 }
