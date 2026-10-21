@@ -288,24 +288,18 @@ ContentPage {
     }
 
     NoticeBox {
-        materialIcon: "shield"
-        text: Translation.tr("Changing system settings asks for your administrator password. The zram size only changes after a reboot when memory is already tight.")
-    }
-
-    NoticeBox {
-        showIcon: false
-        text: root.stateSummary
-    }
-
-    NoticeBox {
         showIcon: false
         visible: root.pendingReboot
+        Layout.fillWidth: true
+        Layout.maximumWidth: root.baseWidth
         text: Translation.tr("The new zram size is saved and is applied the next time the machine boots.")
     }
 
     NoticeBox {
         showIcon: false
         visible: root.applyFailed
+        Layout.fillWidth: true
+        Layout.maximumWidth: root.baseWidth
         text: Translation.tr("The change could not be applied: %1").arg(root.applyError)
     }
 
@@ -360,9 +354,12 @@ ContentPage {
         ContentSubsection {
             title: Translation.tr("Swap (zram)")
             tooltip: Translation.tr("zram is compressed swap in RAM. A high swappiness keeps cold pages in the compressed swap instead of the disk.")
+                + "\n\n" + root.stateSummary
+                + "\n" + Translation.tr("Changing system settings asks for your administrator password.")
             ConfigSlider {
                 buttonIcon: "swap_horiz"
                 text: Translation.tr("zram size (% of RAM)")
+                textWidth: 170
                 value: Config.options.performance.memory.zramSizePercent
                 usePercentTooltip: false
                 from: 25
@@ -378,6 +375,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "tune"
                 text: Translation.tr("Swappiness")
+                textWidth: 170
                 value: Config.options.performance.memory.swappiness
                 usePercentTooltip: false
                 from: 0
@@ -420,6 +418,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "speed"
                 text: Translation.tr("Maximum frequency (%)")
+                textWidth: 170
                 value: Config.options.performance.graphics.gpuFrequencyPercent
                 usePercentTooltip: false
                 from: 50
@@ -442,6 +441,7 @@ ContentPage {
         ContentSubsection {
             title: Translation.tr("Power profile")
             tooltip: Translation.tr("Balanced keeps the processor quiet while still reacting fast. Performance pins the maximum frequency, which uses more battery.")
+                + "\n" + Translation.tr("Changing system settings asks for your administrator password.")
             ConfigSelectionArray {
                 currentValue: Config.options.performance.cpu.profile
                 onSelected: newValue => {
@@ -492,6 +492,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "clock"
                 text: Translation.tr("Maximum frequency (%)")
+                textWidth: 170
                 value: Config.options.performance.cpu.maxFrequencyPercent
                 usePercentTooltip: false
                 from: 20

@@ -613,7 +613,6 @@
   "Pin": "Pin",
   "Unpin": "Unpin",
   "Performance": "Performance",
-  "Changing system settings asks for your administrator password. The zram size only changes after a reboot when memory is already tight.": "Changing system settings asks for your administrator password. The zram size only changes after a reboot when memory is already tight.",
   "Memory (RAM)": "Memory (RAM)",
   "Chromium and Electron apps": "Chromium and Electron apps",
   "Applies to Brave, Spotify and WhatsZan. The apps have to be closed completely for the new limits to be used.": "Applies to Brave, Spotify and WhatsZan. The apps have to be closed completely for the new limits to be used.",
@@ -642,5 +641,6 @@
   "Limits the maximum frequency of the processor. 100% means the full range is available.": "Limits the maximum frequency of the processor. 100% means the full range is available.",
   "Currently: %1 RAM, %2 zram (%3%), swappiness %4, governor %5, boost %6": "Currently: %1 RAM, %2 zram (%3%), swappiness %4, governor %5, boost %6",
   "The new zram size is saved and is applied the next time the machine boots.": "The new zram size is saved and is applied the next time the machine boots.",
-  "The change could not be applied: %1": "The change could not be applied: %1"
+  "The change could not be applied: %1": "The change could not be applied: %1",
+  "Changing system settings asks for your administrator password.": "Changing system settings asks for your administrator password."
 }
