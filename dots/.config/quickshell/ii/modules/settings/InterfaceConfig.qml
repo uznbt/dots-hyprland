@@ -479,6 +479,18 @@ ContentPage {
         }
 
         ConfigSwitch {
+            buttonIcon: "memory"
+            text: Translation.tr('Keep left sidebar loaded')
+            checked: Config.options.sidebar.keepLeftSidebarLoaded
+            onCheckedChanged: {
+                Config.options.sidebar.keepLeftSidebarLoaded = checked;
+            }
+            StyledToolTip {
+                text: Translation.tr("When enabled keeps the content of the left sidebar loaded to reduce the delay when opening,\nat the cost of consistent RAM usage. The left sidebar holds the launcher and the AI chat,\nso it is the heaviest part of the shell.")
+            }
+        }
+
+        ConfigSwitch {
             buttonIcon: "translate"
             text: Translation.tr('Enable translator')
             checked: Config.options.sidebar.translator.enable

@@ -14,6 +14,8 @@ Scope { // Scope
     property bool pin: false
     property Component contentComponent: SidebarLeftContent {}
     property Item sidebarContent
+    // Kalau false, isi sidebar dibuang dari memori saat sidebar ditutup.
+    property bool keepLoaded: Config?.options.sidebar.keepLeftSidebarLoaded ?? false
 
     function toggleDetach() {
         root.detach = !root.detach;
@@ -58,25 +60,57 @@ Scope { // Scope
         else root.pin = !root.pin;
     }
 
-    Component.onCompleted: {
+    function createContent() {
+        if (root.sidebarContent) return;
         root.sidebarContent = contentComponent.createObject(null, {
             "scopeRoot": root,
         });
-        sidebarLoader.item.contentParent.children = [root.sidebarContent];
+        if (root.detach) {
+            detachedSidebarLoader.item.contentParent.children = [root.sidebarContent];
+        } else {
+            sidebarLoader.item.contentParent.children = [root.sidebarContent];
+        }
+    }
+
+    function destroyContent() {
+        if (!root.sidebarContent) return;
+        root.sidebarContent.parent = null;
+        root.sidebarContent.destroy();
+        root.sidebarContent = null;
+    }
+
+    Component.onCompleted: {
+        // Isi sidebar dihapus lagi kalau sidebar ditutup, supaya tidak
+        // memakai RAM. Set keepLeftSidebarLoaded kalau mau tetap di-memory.
+        if (root.keepLoaded)
+            root.createContent();
+    }
+    Connections {
+        target: GlobalStates
+        function onSidebarLeftOpenChanged() {
+            if (GlobalStates.sidebarLeftOpen || root.keepLoaded)
+                root.createContent();
+            else
+                root.destroyContent();
+        }
     }
 
     onDetachChanged: {
         if (root.detach) {
             GlobalFocusGrab.removeDismissable(sidebarLoader.item) // Remove sidebar from the focus grab system
-            sidebarContent.parent = null; // Detach content from sidebar
-            sidebarLoader.active = false; // Unload sidebar
-            detachedSidebarLoader.active = true; // Load detached window
-            detachedSidebarLoader.item.contentParent.children = [sidebarContent];
+            if (root.sidebarContent) {
+                sidebarContent.parent = null; // Detach content from sidebar
+                sidebarLoader.active = false; // Unload sidebar
+                detachedSidebarLoader.active = true; // Load detached window
+                detachedSidebarLoader.item.contentParent.children = [sidebarContent];
+            }
         } else {
-            sidebarContent.parent = null; // Detach content from window
-            detachedSidebarLoader.active = false; // Unload detached window
-            sidebarLoader.active = true; // Load sidebar
-            sidebarLoader.item.contentParent.children = [sidebarContent];
+            if (root.sidebarContent) {
+                sidebarContent.parent = null; // Detach content from window
+                detachedSidebarLoader.active = false; // Unload detached window
+                sidebarLoader.active = true; // Load sidebar
+                sidebarLoader.item.contentParent.children = [sidebarContent];
+            }
         }
     }
 

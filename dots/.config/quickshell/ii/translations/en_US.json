@@ -617,5 +617,7 @@
   "Choose which resource indicators are shown in the bar.": "Choose which resource indicators are shown in the bar.",
   "RAM": "RAM",
   "Swap": "Swap",
-  "CPU": "CPU"
+  "CPU": "CPU",
+  "Keep left sidebar loaded": "Keep left sidebar loaded",
+  "When enabled keeps the content of the left sidebar loaded to reduce the delay when opening,\nat the cost of consistent RAM usage. The left sidebar holds the launcher and the AI chat,\nso it is the heaviest part of the shell.": "When enabled keeps the content of the left sidebar loaded to reduce the delay when opening,\nat the cost of consistent RAM usage. The left sidebar holds the launcher and the AI chat,\nso it is the heaviest part of the shell."
 }

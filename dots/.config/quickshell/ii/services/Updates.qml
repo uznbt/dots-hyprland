@@ -19,11 +19,21 @@ Singleton {
     readonly property bool updateAdvised: available && count > Config.options.updates.adviseUpdateThreshold
     readonly property bool updateStronglyAdvised: available && count > Config.options.updates.stronglyAdviseUpdateThreshold
 
-    function load() {}
+    function load() {
+        // Cek pertama ditunda supaya shell baru start tidak langsung mencuri
+        // RAM untuk salinan database pacman.
+        startupDelayTimer.restart();
+    }
     function refresh() {
         if (!available) return;
         print("[Updates] Checking for system updates")
         checkUpdatesProc.running = true;
+    }
+
+    Timer {
+        id: startupDelayTimer
+        interval: 120000
+        onTriggered: root.refresh()
     }
 
     Timer {
@@ -42,13 +52,14 @@ Singleton {
         command: ["which", "checkupdates"]
         onExited: (exitCode, exitStatus) => {
             root.available = (exitCode === 0);
-            root.refresh();
         }
     }
 
     Process {
         id: checkUpdatesProc
-        command: ["bash", "-c", "checkupdates | wc -l"]
+        // checkupdates menyalin database pacman ke /tmp, jadi boros RAM dan
+        // I/O. Jalankan dengan prioritas terendah supaya tidak mengganggu.
+        command: ["bash", "-c", "nice -n 19 ionice -c3 checkupdates | wc -l"]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.count = parseInt(text.trim());

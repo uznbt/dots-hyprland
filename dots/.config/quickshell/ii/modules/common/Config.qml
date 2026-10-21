@@ -507,6 +507,8 @@ Singleton {
 
             property JsonObject sidebar: JsonObject {
                 property bool keepRightSidebarLoaded: true
+                // Isi sidebar kiri dibuang dari memori saat ditutup (hemat RAM).
+                property bool keepLeftSidebarLoaded: false
                 property JsonObject translator: JsonObject {
                     property bool enable: false
                     property int delay: 300 // Delay before sending request. Reduces (potential) rate limits and lag.

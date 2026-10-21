@@ -141,6 +141,9 @@ supaya RAM tidak terlalu banyak dipakai untuk data terkompresi.
 
 ## 4. Cara memverifikasi
 
+> Analisis lengkap pemakaian RAM shell (bar, sidebar, polling) ada di
+> `docs/MEMORY.md`.
+
 ```sh
 # Ringkasan per aplikasi
 ps -eo rss,comm --no-headers \

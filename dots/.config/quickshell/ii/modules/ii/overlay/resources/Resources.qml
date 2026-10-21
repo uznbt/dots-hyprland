@@ -15,26 +15,36 @@ StyledOverlayWidget {
     id: root
     minimumWidth: 300
     minimumHeight: 200
-    property list<var> resources: [
-        {
-            "icon": "planner_review",
-            "name": Translation.tr("CPU"),
-            "history": ResourceUsage.cpuUsageHistory,
-            "maxAvailableString": ResourceUsage.maxAvailableCpuString
-        },
-        {
-            "icon": "memory",
-            "name": Translation.tr("RAM"),
-            "history": ResourceUsage.memoryUsageHistory,
-            "maxAvailableString": ResourceUsage.maxAvailableMemoryString
-        },
-        {
-            "icon": "swap_horiz",
-            "name": Translation.tr("Swap"),
-            "history": ResourceUsage.swapUsageHistory,
-            "maxAvailableString": ResourceUsage.maxAvailableSwapString
-        },
-    ]
+    // Hanya indikator yang aktif di bar yang ditampilkan, supaya overlay
+    // dan popup bar konsisten.
+    property list<var> resources: {
+        const list = [];
+        if (Config.options.bar.resources.showCpu) {
+            list.push({
+                "icon": "planner_review",
+                "name": Translation.tr("CPU"),
+                "history": ResourceUsage.cpuUsageHistory,
+                "maxAvailableString": ResourceUsage.maxAvailableCpuString
+            });
+        }
+        if (Config.options.bar.resources.showMemory) {
+            list.push({
+                "icon": "memory",
+                "name": Translation.tr("RAM"),
+                "history": ResourceUsage.memoryUsageHistory,
+                "maxAvailableString": ResourceUsage.maxAvailableMemoryString
+            });
+        }
+        if (Config.options.bar.resources.showSwap) {
+            list.push({
+                "icon": "swap_horiz",
+                "name": Translation.tr("Swap"),
+                "history": ResourceUsage.swapUsageHistory,
+                "maxAvailableString": ResourceUsage.maxAvailableSwapString
+            });
+        }
+        return list;
+    }
 
     contentItem: OverlayBackground {
         id: contentItem
@@ -51,7 +61,8 @@ StyledOverlayWidget {
             SecondaryTabBar {
                 id: tabBar
 
-                currentIndex: Persistent.states.overlay.resources.tabIndex
+                // Tab index bisa menunjuk ke tab yang sudah disembunyikan.
+                currentIndex: Math.min(Persistent.states.overlay.resources.tabIndex, Math.max(root.resources.length - 1, 0))
                 onCurrentIndexChanged: {
                     Persistent.states.overlay.resources.tabIndex = tabBar.currentIndex;
                 }

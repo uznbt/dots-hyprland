@@ -31,6 +31,13 @@ Singleton {
     property list<real> memoryUsageHistory: []
     property list<real> swapUsageHistory: []
 
+    // Indikator yang dimatikan di bar juga tidak dipantau sama sekali,
+    // supaya tidak ada polling dan history yang sia-sia.
+    readonly property bool showMemory: Config?.options.bar.resources.showMemory ?? true
+    readonly property bool showSwap: Config?.options.bar.resources.showSwap ?? true
+    readonly property bool showCpu: Config?.options.bar.resources.showCpu ?? true
+    readonly property bool trackMemory: root.showMemory || root.showSwap
+
     function kbToGbString(kb) {
         return (kb / (1024 * 1024)).toFixed(1) + " GB";
     }
@@ -54,9 +61,12 @@ Singleton {
         }
     }
     function updateHistories() {
-        updateMemoryUsageHistory()
-        updateSwapUsageHistory()
-        updateCpuUsageHistory()
+        if (root.showMemory)
+            updateMemoryUsageHistory()
+        if (root.showSwap)
+            updateSwapUsageHistory()
+        if (root.showCpu)
+            updateCpuUsageHistory()
     }
 
 	Timer {
@@ -64,32 +74,38 @@ Singleton {
         running: true 
         repeat: true
 		onTriggered: {
-            // Reload files
-            fileMeminfo.reload()
-            fileStat.reload()
+            // Hanya file yang dipakai indikator aktif yang dibaca.
+            if (root.trackMemory)
+                fileMeminfo.reload()
+            if (root.showCpu)
+                fileStat.reload()
 
             // Parse memory and swap usage
-            const textMeminfo = fileMeminfo.text()
-            memoryTotal = Number(textMeminfo.match(/MemTotal: *(\d+)/)?.[1] ?? 1)
-            memoryFree = Number(textMeminfo.match(/MemAvailable: *(\d+)/)?.[1] ?? 0)
-            swapTotal = Number(textMeminfo.match(/SwapTotal: *(\d+)/)?.[1] ?? 1)
-            swapFree = Number(textMeminfo.match(/SwapFree: *(\d+)/)?.[1] ?? 0)
+            if (root.trackMemory) {
+                const textMeminfo = fileMeminfo.text()
+                memoryTotal = Number(textMeminfo.match(/MemTotal: *(\d+)/)?.[1] ?? 1)
+                memoryFree = Number(textMeminfo.match(/MemAvailable: *(\d+)/)?.[1] ?? 0)
+                swapTotal = Number(textMeminfo.match(/SwapTotal: *(\d+)/)?.[1] ?? 1)
+                swapFree = Number(textMeminfo.match(/SwapFree: *(\d+)/)?.[1] ?? 0)
+            }
 
             // Parse CPU usage
-            const textStat = fileStat.text()
-            const cpuLine = textStat.match(/^cpu\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/)
-            if (cpuLine) {
-                const stats = cpuLine.slice(1).map(Number)
-                const total = stats.reduce((a, b) => a + b, 0)
-                const idle = stats[3]
+            if (root.showCpu) {
+                const textStat = fileStat.text()
+                const cpuLine = textStat.match(/^cpu\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/)
+                if (cpuLine) {
+                    const stats = cpuLine.slice(1).map(Number)
+                    const total = stats.reduce((a, b) => a + b, 0)
+                    const idle = stats[3]
 
-                if (previousCpuStats) {
-                    const totalDiff = total - previousCpuStats.total
-                    const idleDiff = idle - previousCpuStats.idle
-                    cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) : 0
+                    if (previousCpuStats) {
+                        const totalDiff = total - previousCpuStats.total
+                        const idleDiff = idle - previousCpuStats.idle
+                        cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) : 0
+                    }
+
+                    previousCpuStats = { total, idle }
                 }
-
-                previousCpuStats = { total, idle }
             }
 
             root.updateHistories()
@@ -107,7 +123,8 @@ Singleton {
             LC_ALL: "C"
         })
         command: ["bash", "-c", "lscpu | grep 'CPU max MHz' | awk '{print $4}'"]
-        running: true
+        // Cuma perlu kalau indikator CPU dipakai.
+        running: root.showCpu
         stdout: StdioCollector {
             id: outputCollector
             onStreamFinished: {
