@@ -17,7 +17,7 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Fase | Status | Catatan |
 | --- | --- | --- |
 | 0. Baseline/kontrak | selesai | branch, tag, backup, matrix awal |
-| 1. Fondasi + bar | berjalan | `dots-bar` build dan berjalan |
+| 1. Fondasi + bar | berjalan | `dots-bar`, `dotsd`, `dots-ctl`, `dots-dispatch`, `dots-session` |
 | 2. Daemon/services | belum | |
 | 3. Panel inti + daily | belum | |
 | 4. Sidebar/overview | belum | |
@@ -28,7 +28,7 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 
 | Fitur | Native | Catatan |
 | --- | --- | --- |
-| Geometri 1366×768 | ya | masih konstanta prototipe |
+| Layout responsif horizontal | ya | grup tengah/popup dihitung dari lebar output |
 | Workspace + app icon | ya | data Hyprland IPC |
 | Window aktif | ya | |
 | Media | ya | `playerctl` |
@@ -46,7 +46,9 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Shortened form | belum | |
 | Tray | belum | |
 | Multi-monitor | belum | |
-| Layout non-1366×768 | sebagian | grup tengah dan popup mengikuti lebar |
+| Shortened/vertical | belum | |
+| Supervisor hybrid | ya | `dots-session start/stop` |
+| Backend switch | sebagian | `hybrid`/`quickshell`; `native` ditolak sampai panel native ada |
 
 ## Angka
 
@@ -67,4 +69,5 @@ G1 belum lulus karena:
 - popup belum interaktif penuh;
 - belum diuji 3 hari sebagai bar default.
 
-Langkah berikutnya: refactor layout bar, lalu `dotsd` + `dots-ctl`.
+Langkah berikutnya: multi-output + surface per monitor, lalu port panel inti
+ke Wayland native; setelah itu baru `dots-session backend native` boleh dibuka.

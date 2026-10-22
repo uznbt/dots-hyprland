@@ -95,6 +95,15 @@ dots_dispatch = executable(
   install: true,
 )
 
+dots_session = executable(
+  'dots-session',
+  'src/session/dots-session.c',
+  include_directories: src_incs,
+  link_with: dots_common,
+  dependencies: [json_c],
+  install: true,
+)
+
 # Aset dibaca relatif terhadap executable saat dijalankan dari build dir.
 # Salin ke build dir supaya `meson compile` langsung menghasilkan layout yang
 # bisa dijalankan tanpa install.

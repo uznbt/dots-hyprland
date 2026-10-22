@@ -15,18 +15,18 @@ proses berhenti.
 
 ## Kembali ke seluruh shell Quickshell
 
-Jika nanti `dots-session` sudah ada:
-
 ```sh
-dots-session backend quickshell
-dots-session restart
+native/build/dots-session stop
+native/build/dots-session backend quickshell
 ```
 
-Selama Fase 1 belum ada `dots-session`, jalankan:
+`dots-session stop` menghentikan bar/daemon yang dikelolanya dan membuka
+kembali bar Quickshell. Kalau ingin memaksa:
 
 ```sh
 pkill -x dots-bar
-qs -c ii
+pkill -x dotsd
+qs -c ii ipc call bar open
 ```
 
 ## Baseline git

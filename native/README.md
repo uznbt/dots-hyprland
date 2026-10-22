@@ -12,6 +12,7 @@ Status: **Fase 1 — bar native sudah bisa dijalankan, belum menjadi default.**
 - `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
 - `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
 - `dots-dispatch`: dispatcher aksi dengan fallback `qs`, untuk migrasi keybind.
+- `dots-session`: supervisor tipis untuk mode hybrid; start/stop/status/backend.
 - Build Meson + smoke test IPC.
 - Skrip uji `scripts/run-bar.sh` yang menyalakan daemon, menutup bar Quickshell
   sementara, dan mengembalikan semuanya saat keluar.
@@ -20,7 +21,7 @@ Status: **Fase 1 — bar native sudah bisa dijalankan, belum menjadi default.**
 ## Build
 
 ```sh
-meson setup build native
+meson setup native/build native
 meson compile -C native/build
 ```
 
@@ -47,6 +48,21 @@ Skrip akan:
 Jangan jadikan ini default harian sampai gate G1 lulus. Quickshell masih
 menangani sidebar, overview, notifikasi, OSD, dan panel lain.
 
+## Supervisor hybrid
+
+```sh
+./native/build/dots-session status
+./native/build/dots-session start      # foreground; jalankan di terminal/exec-once
+./native/build/dots-session stop       # kembali ke bar Quickshell
+./native/build/dots-session backend hybrid
+```
+
+`start` menyalakan `dotsd`, menutup bar Quickshell, lalu menjalankan
+`dots-bar`. Saat proses berhenti atau `stop` dipanggil, bar Quickshell dibuka
+kembali. Backend disimpan di `$XDG_STATE_HOME/dots/backend` (default
+`hybrid`). Pilihan `quickshell` hanya membuka kembali bar Quickshell; `native`
+belum diaktifkan karena panel native belum ada.
+
 ## Daemon dan CLI
 
 ```sh
@@ -67,8 +83,8 @@ langsung sehingga fitur harian tidak mati.
 - Layout horizontal sudah dihitung dari lebar output, tetapi belum ada bentuk
   shortened, vertical, atau multi-output.
 - Interaksi sidebar/media masih didelegasikan ke Quickshell lewat `dotsd`.
-- Belum ada `dots-session`; `run-bar.sh` adalah harness uji, bukan supervisor
-  produksi.
+- `dots-session` masih supervisor tipis; belum ada health-check otomatis,
+  restart, atau watchdog proses.
 - Belum ada tray, popup interaktif penuh, dan animasi auto-hide.
 - Warna layer grup/popup border masih konstanta prototipe; warna utama,
   background, teks, dan secondary sudah mengikuti `colors.json`.
@@ -83,6 +99,10 @@ native/
   assets/
   protocols/
   scripts/run-bar.sh
+  src/common/
+  src/daemon/
+  src/ctl/
+  src/session/
   src/ui/bar.c
 ```
 
