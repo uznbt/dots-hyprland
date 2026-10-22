@@ -86,6 +86,15 @@ dots_ctl = executable(
   install: true,
 )
 
+dots_dispatch = executable(
+  'dots-dispatch',
+  'src/ctl/dots-dispatch.c',
+  include_directories: src_incs,
+  link_with: dots_common,
+  dependencies: [json_c],
+  install: true,
+)
+
 # Aset dibaca relatif terhadap executable saat dijalankan dari build dir.
 # Salin ke build dir supaya `meson compile` langsung menghasilkan layout yang
 # bisa dijalankan tanpa install.

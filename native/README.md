@@ -11,6 +11,7 @@ Status: **Fase 1 — bar native sudah bisa dijalankan, belum menjadi default.**
   dan warna Material You dari `generated/colors.json`.
 - `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
 - `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
+- `dots-dispatch`: dispatcher aksi dengan fallback `qs`, untuk migrasi keybind.
 - Build Meson + smoke test IPC.
 - Skrip uji `scripts/run-bar.sh` yang menyalakan daemon, menutup bar Quickshell
   sementara, dan mengembalikan semuanya saat keluar.
@@ -54,6 +55,7 @@ menangani sidebar, overview, notifikasi, OSD, dan panel lain.
 ./native/build/dots-ctl status
 ./native/build/dots-ctl config-get bar.resources.showMemory
 ./native/build/dots-ctl panel sidebarRight toggle
+./native/build/dots-dispatch sidebarRight toggle
 ```
 
 `panel` masih mendelegasikan ke Quickshell. Ini adapter transisi, bukan panel
