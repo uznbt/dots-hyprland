@@ -60,7 +60,8 @@ dots_bar = executable(
     protocol_sources,
   ],
   include_directories: incs,
-  dependencies: [wayland_client, cairo, pangocairo, math],
+  link_with: dots_common,
+  dependencies: [wayland_client, cairo, pangocairo, json_c, math],
   install: true,
 )
 

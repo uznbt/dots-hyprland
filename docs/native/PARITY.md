@@ -38,14 +38,14 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Bell notifikasi | ya | butuh bridge state Quickshell |
 | Todo popup | ya | `todo.json` |
 | Popup jam/resource/baterai | ya | non-interaktif, seperti QML |
-| Klik sidebar | ya | masih lewat IPC Quickshell |
+| Klik sidebar | ya | lewat `dotsd` -> adapter Quickshell |
 | Scroll brightness/volume/workspace | ya | |
-| Auto-hide | belum | |
-| Bar bottom | belum | |
+| Auto-hide | ya | hover strip + pushWindows |
+| Bar bottom | ya | |
 | Shortened form | belum | |
 | Tray | belum | |
 | Multi-monitor | belum | |
-| Layout non-1366×768 | belum | target Fase 1 lanjutan |
+| Layout non-1366×768 | sebagian | grup tengah dan popup mengikuti lebar |
 
 ## Angka
 
@@ -53,16 +53,16 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | --- | ---: |
 | Quickshell baseline | 344–355 MB |
 | Quickshell + bar | 139 MB |
-| `dots-bar` | 10,9 MB |
+| `dots-bar` | 11,2 MB |
 
 ## Gate berikutnya
 
 G1 belum lulus karena:
 
-- geometri masih hardcoded;
 - belum multi-monitor;
-- belum auto-hide/bottom/shortened;
+- belum shortened/vertical;
 - interaksi panel masih Quickshell;
+- popup belum interaktif penuh;
 - belum diuji 3 hari sebagai bar default.
 
 Langkah berikutnya: refactor layout bar, lalu `dotsd` + `dots-ctl`.

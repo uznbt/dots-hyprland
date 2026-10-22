@@ -29,6 +29,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "common/config.h"
+#include "common/ipc.h"
+#include "common/paths.h"
+
 #include "wlr-layer-shell-client.h"
 
 #define SURFACE_H 320
@@ -82,6 +86,9 @@ struct state {
     // Input / interactive state
     int ptr_inside;
     double ptr_x, ptr_y;
+    long long last_pointer_ms;
+    int bar_visible;
+    double bar_y;
     unsigned hover_mask;      // bit 0 = left area, bit 1 = right area
     int lb_open, rb_open;     // sidebar toggled states, polled from Hyprland
     int popup;                // 0 none, 1 clock, 2 resources, 3 battery
@@ -144,6 +151,11 @@ struct state {
     int cfg_always_cpu, cfg_always_swap;
     int cfg_mem_warn, cfg_cpu_warn, cfg_swap_warn;
     int cfg_battery_low;
+    int cfg_auto_hide;
+    int cfg_autohide_hover;
+    int cfg_autohide_push;
+    int cfg_bar_bottom;
+    struct dots_config cfg;
 
     // Icons
     cairo_surface_t *icon_kitty;
@@ -156,6 +168,35 @@ struct state {
 
     time_t last_sec, last_res, last_media;
 };
+
+struct bar_layout {
+    double w;
+    double middle_w;
+    double gx;
+    double lg_group;
+    double wg_group;
+    double rg_group;
+    double lg;
+    double wg;
+    double rg;
+};
+
+static struct bar_layout bar_layout_for(const struct state *s) {
+    struct bar_layout l;
+    l.w = s->buf_w > 0 ? s->buf_w : (s->out_w > 0 ? s->out_w : 1366);
+    /* Lebar grup tengah mengikuti BarContent.qml pada bentuk penuh. */
+    l.middle_w = 360 + 4 + 270 + 4 + 360;
+    l.gx = floor((l.w - l.middle_w) / 2.0);
+    if (l.gx < 0)
+        l.gx = 0;
+    l.lg_group = l.gx;
+    l.wg_group = l.lg_group + 360 + 4;
+    l.rg_group = l.wg_group + 270 + 4;
+    l.lg = l.lg_group + 5;
+    l.wg = l.wg_group + 5;
+    l.rg = l.rg_group + 5;
+    return l;
+}
 
 static char g_base[600] = ".";
 
@@ -689,7 +730,39 @@ static void spawn_cmd(char *const argv[]) {
     }
 }
 
+static int call_daemon_panel(const char *target, const char *fn) {
+    char sock[1024];
+    if (dots_socket_path(sock, sizeof sock) < 0)
+        return -1;
+    int fd = dots_ipc_client_connect(sock);
+    if (fd < 0)
+        return -1;
+
+    char req[2048];
+    int n = snprintf(req, sizeof req,
+                     "{\"id\":1,\"cmd\":\"panel\",\"target\":\"%s\",\"action\":\"%s\"}",
+                     target, fn);
+    if (n < 0 || (size_t)n >= sizeof req) {
+        close(fd);
+        return -1;
+    }
+    int ok = -1;
+    if (dots_ipc_send_line(fd, req) == 0) {
+        char response[DOTS_IPC_MAX];
+        if (dots_ipc_recv_line(fd, response, sizeof response) > 0 &&
+            strstr(response, "\"ok\":true"))
+            ok = 0;
+    }
+    close(fd);
+    return ok;
+}
+
 static void call_qs(const char *target, const char *fn) {
+    // Transisi: dotsd mendelegasikan ke Quickshell. Jika daemon belum ada,
+    // panggil qs langsung supaya bar tetap berfungsi.
+    if (call_daemon_panel(target, fn) == 0)
+        return;
+
     const char *config = getenv("DOTS_QS_CONFIG");
     if (!config || !config[0])
         config = "ii";
@@ -745,21 +818,74 @@ static void change_volume(int up) {
     spawn_cmd(argv);
 }
 
+static long long mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void apply_layer_state(struct state *s) {
+    if (!s->surface)
+        return;
+
+    double w = s->buf_w > 0 ? s->buf_w : (s->out_w > 0 ? s->out_w : 1366);
+    int input_h = (s->cfg_auto_hide && !s->bar_visible)
+        ? s->cfg_autohide_hover : BAR_H;
+    int input_y = (int)s->bar_y;
+    if (s->cfg_auto_hide && !s->bar_visible && s->cfg_bar_bottom)
+        input_y = (int)(SURFACE_H - input_h);
+    struct wl_region *region = wl_compositor_create_region(s->compositor);
+    if (region) {
+        wl_region_add(region, 0, input_y, (int32_t)w, input_h);
+        wl_surface_set_input_region(s->surface, region);
+        wl_region_destroy(region);
+    }
+
+    if (s->layer_surface) {
+        int zone = 40;
+        if (s->cfg_auto_hide &&
+            (!s->bar_visible || !s->cfg_autohide_push))
+            zone = 0;
+        zwlr_layer_surface_v1_set_exclusive_zone(s->layer_surface, zone);
+    }
+    s->redraw = 1;
+}
+
+static void show_bar(struct state *s) {
+    s->last_pointer_ms = mono_ms();
+    if (s->bar_visible)
+        return;
+    s->bar_visible = 1;
+    apply_layer_state(s);
+}
+
+static void hide_bar(struct state *s) {
+    if (!s->cfg_auto_hide || s->popup || s->ptr_inside)
+        return;
+    if (!s->bar_visible)
+        return;
+    s->bar_visible = 0;
+    s->hover_mask = 0;
+    apply_layer_state(s);
+}
+
 static void handle_click(struct state *s, uint32_t button, double x, double y) {
     if (y < 0 || y >= BAR_H)
         return;
 
+    struct bar_layout l = bar_layout_for(s);
+
     // Left section (sidebar button + active window): sidebarLeft.
-    if (x < 184) {
+    if (x < l.gx) {
         if (button == BTN_LEFT)
             toggle_sidebar(s, 0);
         return;
     }
     // Workspaces: click focuses a workspace, right click opens overview,
     // side/back button toggles the special workspace.
-    if (x >= 548 && x < 818) {
+    if (x >= l.wg_group && x < l.wg_group + 270) {
         if (button == BTN_LEFT) {
-            int idx = (int)((x - 553) / WS_W);
+            int idx = (int)((x - l.wg) / WS_W);
             if (idx < 0) idx = 0;
             if (idx >= NWS) idx = NWS - 1;
             focus_workspace(s, idx + 1);
@@ -771,7 +897,7 @@ static void handle_click(struct state *s, uint32_t button, double x, double y) {
         return;
     }
     // Media widget. Its left edge follows the Resources group.
-    if (x >= s->media_x + 5 && x < 539) {
+    if (x >= s->media_x + 5 && x < l.lg_group + 355) {
         if (button == BTN_LEFT)
             call_qs("mediaControls", "toggle");
         else if (button == BTN_MIDDLE)
@@ -784,7 +910,7 @@ static void handle_click(struct state *s, uint32_t button, double x, double y) {
         return;
     }
     // Resources: no click actions in the QML.
-    if (x >= 184 && x < 548)
+    if (x >= l.gx && x < l.wg_group)
         return;
 
     // Clock/battery/right section: sidebarRight.
@@ -795,12 +921,13 @@ static void handle_click(struct state *s, uint32_t button, double x, double y) {
 static void handle_scroll(struct state *s, double x, double y, double dy) {
     if (y < 0 || y >= BAR_H || dy == 0)
         return;
-    if (x < 184) {
+    struct bar_layout l = bar_layout_for(s);
+    if (x < l.gx) {
         call_qs("brightness", dy < 0 ? "increment" : "decrement");
-    } else if (x >= 548 && x < 818) {
+    } else if (x >= l.wg_group && x < l.wg_group + 270) {
         // Scroll down/up on workspaces: next/previous relative workspace.
         focus_workspace_rel(dy > 0 ? 1 : -1);
-    } else if (x >= 1182) {
+    } else if (x >= l.rg_group + 360) {
         change_volume(dy < 0 ? 1 : 0);
     }
 }
@@ -814,24 +941,27 @@ static void update_hover(struct state *s) {
             s->popup = p;
             s->redraw = 1;
         }
+        show_bar(s);
         return;
     }
 
     unsigned mask = 0;
     int popup = 0;
-    if (s->ptr_inside && s->ptr_y >= 0 && s->ptr_y < BAR_H) {
+    double yy = s->ptr_y - s->bar_y;
+    if (s->bar_visible && s->ptr_inside && yy >= 0 && yy < BAR_H) {
+        struct bar_layout l = bar_layout_for(s);
         double x = s->ptr_x;
-        if (x < 184)
+        if (x < l.gx)
             mask |= 1;
-        else if (x >= 1182)
+        else if (x >= l.rg_group + 360)
             mask |= 2;
 
-        if (x >= 184 && s->resources_w > 8 &&
-            x < 184 + s->resources_w + 9)
+        if (x >= l.gx && s->resources_w > 8 &&
+            x < l.gx + s->resources_w + 9)
             popup = 2;      // resources
-        else if (x >= 1140 && x < 1182)
+        else if (x >= l.rg_group + 318 && x < l.rg_group + 360)
             popup = 3;      // battery
-        else if (x >= 905 && x < 1050)
+        else if (x >= l.gx + 721 && x < l.gx + 866)
             popup = 1;      // clock
     }
     if (mask != s->hover_mask || popup != s->popup) {
@@ -1331,7 +1461,7 @@ static void popup_row_follow(cairo_t *cr, double x, double cy,
     }
 }
 
-static void draw_popups(struct state *s, cairo_t *cr) {
+static void draw_popups(struct state *s, cairo_t *cr, int above) {
     if (s->popup == 0)
         return;
     char v1[64], v2[64], v3[64];
@@ -1411,27 +1541,29 @@ static void draw_popups(struct state *s, cairo_t *cr) {
         double w = content_w + 22;
         // The RAM/Swap columns have three rows; a CPU-only card is shorter.
         double h = (show_mem || show_swap) ? 120 : 70;
-        double center = 254.5 + (s->resources_w - 110.0) / 2.0;
-        double x = center - w / 2.0, y = 50;
+        struct bar_layout l = bar_layout_for(s);
+        double center = l.gx + 70.5 + (s->resources_w - 110.0) / 2.0;
+        double x = center - w / 2.0;
+        double y = above ? -50.0 - h : 50.0;
         draw_popup_card(cr, x, y, w, h);
         double cx = x + 10;
         if (show_mem) {
-            popup_header(cr, cx, 69.5, "memory", "RAM");
-            popup_row_follow(cr, cx, 99.5, "clock_loader_60", "Digunakan:", v1);
-            popup_row_follow(cr, cx, 124, "check_circle", "Gratis:", v2);
-            popup_row_follow(cr, cx, 149, "empty_dashboard", "Total:", v3);
+            popup_header(cr, cx, y + 19.5, "memory", "RAM");
+            popup_row_follow(cr, cx, y + 49.5, "clock_loader_60", "Digunakan:", v1);
+            popup_row_follow(cr, cx, y + 74, "check_circle", "Gratis:", v2);
+            popup_row_follow(cr, cx, y + 99, "empty_dashboard", "Total:", v3);
             cx += ram_w + 12;
         }
         if (show_swap) {
-            popup_header(cr, cx, 69.5, "swap_horiz", "Swap");
-            popup_row_follow(cr, cx, 99.5, "clock_loader_60", "Digunakan:", sw1);
-            popup_row_follow(cr, cx, 124, "check_circle", "Gratis:", sw2);
-            popup_row_follow(cr, cx, 149, "empty_dashboard", "Total:", sw3);
+            popup_header(cr, cx, y + 19.5, "swap_horiz", "Swap");
+            popup_row_follow(cr, cx, y + 49.5, "clock_loader_60", "Digunakan:", sw1);
+            popup_row_follow(cr, cx, y + 74, "check_circle", "Gratis:", sw2);
+            popup_row_follow(cr, cx, y + 99, "empty_dashboard", "Total:", sw3);
             cx += swap_w + 12;
         }
         if (show_cpu) {
-            popup_header(cr, cx, 69.5, "planner_review", "CPU");
-            popup_row_follow(cr, cx, 99.5, "bolt", "Beban:", cpu_s);
+            popup_header(cr, cx, y + 19.5, "planner_review", "CPU");
+            popup_row_follow(cr, cx, y + 49.5, "bolt", "Beban:", cpu_s);
         }
         return;
     }
@@ -1447,15 +1579,17 @@ static void draw_popups(struct state *s, cairo_t *cr) {
         double h = 110 + (s->todo_lines - 1) * 19;
         if (h < 110)
             h = 110;
-        double x = 989.5 - w / 2.0, y = 50;
+        struct bar_layout l = bar_layout_for(s);
+        double x = l.gx + 806.5 - w / 2.0;
+        double y = above ? -50.0 - h : 50.0;
         draw_popup_card(cr, x, y, w, h);
         double cx = x + 10, right = x + w - 10;
-        popup_header(cr, cx, 69.5, "calendar_month", s->clock_long_date);
-        popup_row(cr, cx, right, 95.5, "timelapse",
+        popup_header(cr, cx, y + 19.5, "calendar_month", s->clock_long_date);
+        popup_row(cr, cx, right, y + 45.5, "timelapse",
                   "Waktu aktif sistem:", s->uptime_str);
-        popup_row_follow(cr, cx, 121, "checklist", "Tugas:", NULL);
+        popup_row_follow(cr, cx, y + 71, "checklist", "Tugas:", NULL);
         draw_text_top_left(cr, s->todo_text, 15, VAR_MAIN,
-                           cx, 130, C_ON_LAYER1);
+                           cx, y + 80, C_ON_LAYER1);
         return;
     }
 
@@ -1518,12 +1652,14 @@ static void draw_popups(struct state *s, cairo_t *cr) {
     double h = 116;
     if (!show_time) h -= 24.5;
     if (!show_rate) h -= 24.5;
-    double x = 1172.5 - w / 2.0, y = 50;
+    struct bar_layout l = bar_layout_for(s);
+    double x = l.gx + 988.5 - w / 2.0;
+    double y = above ? -50.0 - h : 50.0;
     draw_popup_card(cr, x, y, w, h);
     double cx = x + 10, right = x + w - 10;
-    popup_header(cr, cx, 68.5, "battery_android_full", "Baterai");
+    popup_header(cr, cx, y + 18.5, "battery_android_full", "Baterai");
 
-    double row_y = 96;
+    double row_y = y + 46;
     if (show_time) {
         popup_row(cr, cx, right, row_y, "schedule", time_label, time_val);
         row_y += 24.5;
@@ -1590,23 +1726,6 @@ static const char *todo_path(void) {
     static char path[512];
     if (!path[0])
         snprintf(path, sizeof path, "%s/quickshell/user/todo.json", state_home());
-    return path;
-}
-
-static const char *config_path(void) {
-    static char path[512];
-    if (!path[0]) {
-        const char *config = getenv("XDG_CONFIG_HOME");
-        if (config && config[0]) {
-            snprintf(path, sizeof path, "%s/illogical-impulse/config.json", config);
-        } else {
-            const char *home = getenv("HOME");
-            if (!home)
-                home = "/tmp";
-            snprintf(path, sizeof path,
-                     "%s/.config/illogical-impulse/config.json", home);
-        }
-    }
     return path;
 }
 
@@ -1766,25 +1885,6 @@ static int find_key_bool(const char *obj, const char *key, int *out) {
     return 0;
 }
 
-static int find_key_int(const char *obj, const char *key, int *out) {
-    char pat[64];
-    snprintf(pat, sizeof pat, "\"%s\"", key);
-    const char *p = strstr(obj, pat);
-    if (!p)
-        return 0;
-    p += strlen(pat);
-    p = skip_json_ws(p);
-    if (*p != ':')
-        return 0;
-    p = skip_json_ws(p + 1);
-    char *end = NULL;
-    long v = strtol(p, &end, 10);
-    if (end == p)
-        return 0;
-    *out = (int)v;
-    return 1;
-}
-
 static const char *matching_brace(const char *p) {
     int depth = 0;
     int in_string = 0;
@@ -1818,70 +1918,44 @@ static void read_config(struct state *s) {
         s->cfg_cpu_warn = 90;
         s->cfg_swap_warn = 85;
         s->cfg_battery_low = 20;
+        s->cfg_auto_hide = 0;
+        s->cfg_autohide_hover = 2;
+        s->cfg_autohide_push = 0;
+        s->cfg_bar_bottom = 0;
         s->cfg_loaded = 1;
     }
 
-    struct stat st;
-    if (stat(config_path(), &st) != 0)
-        return;
-    if (s->cfg_mtime == st.st_mtime && s->cfg_mtime_ns == st.st_mtim.tv_nsec &&
-        s->cfg_size == st.st_size)
-        return;
-
-    FILE *f = fopen(config_path(), "r");
-    if (!f)
-        return;
-    size_t len = st.st_size > 0 ? (size_t)st.st_size : 0;
-    if (len > 1024 * 1024) {
-        fclose(f);
-        return;
-    }
-    char *buf = malloc(len + 1);
-    if (!buf) {
-        fclose(f);
-        return;
-    }
-    size_t got = fread(buf, 1, len, f);
-    fclose(f);
-    buf[got] = 0;
+    dots_config_reload_if_changed(&s->cfg);
 
     int old_mem = s->cfg_show_memory, old_cpu = s->cfg_show_cpu;
     int old_swap = s->cfg_show_swap, old_acpu = s->cfg_always_cpu;
     int old_aswap = s->cfg_always_swap;
     int old_mw = s->cfg_mem_warn, old_cw = s->cfg_cpu_warn;
     int old_sw = s->cfg_swap_warn, old_blow = s->cfg_battery_low;
-    int v;
+    int old_hide = s->cfg_auto_hide;
 
-    if (find_key_bool(buf, "showMemory", &v))
-        s->cfg_show_memory = v;
-    if (find_key_bool(buf, "showCpu", &v))
-        s->cfg_show_cpu = v;
-    if (find_key_bool(buf, "showSwap", &v))
-        s->cfg_show_swap = v;
-    if (find_key_bool(buf, "alwaysShowCpu", &v))
-        s->cfg_always_cpu = v;
-    if (find_key_bool(buf, "alwaysShowSwap", &v))
-        s->cfg_always_swap = v;
-    if (find_key_int(buf, "memoryWarningThreshold", &v) && v >= 0 && v <= 100)
-        s->cfg_mem_warn = v;
-    if (find_key_int(buf, "cpuWarningThreshold", &v) && v >= 0 && v <= 100)
-        s->cfg_cpu_warn = v;
-    if (find_key_int(buf, "swapWarningThreshold", &v) && v >= 0 && v <= 100)
-        s->cfg_swap_warn = v;
-    // "low" is only used by battery.low in the Quickshell config.
-    if (find_key_int(buf, "low", &v) && v >= 0 && v <= 100)
-        s->cfg_battery_low = v;
-
-    free(buf);
-    s->cfg_mtime = st.st_mtime;
-    s->cfg_mtime_ns = st.st_mtim.tv_nsec;
-    s->cfg_size = st.st_size;
-
+    s->cfg_show_memory = dots_config_bool(&s->cfg, "bar.resources.showMemory", 1);
+    s->cfg_show_cpu = dots_config_bool(&s->cfg, "bar.resources.showCpu", 1);
+    s->cfg_show_swap = dots_config_bool(&s->cfg, "bar.resources.showSwap", 1);
+    s->cfg_always_cpu = dots_config_bool(&s->cfg, "bar.resources.alwaysShowCpu", 1);
+    s->cfg_always_swap = dots_config_bool(&s->cfg, "bar.resources.alwaysShowSwap", 1);
+    s->cfg_mem_warn = dots_config_int(&s->cfg, "bar.resources.memoryWarningThreshold", 95);
+    s->cfg_cpu_warn = dots_config_int(&s->cfg, "bar.resources.cpuWarningThreshold", 90);
+    s->cfg_swap_warn = dots_config_int(&s->cfg, "bar.resources.swapWarningThreshold", 85);
+    s->cfg_battery_low = dots_config_int(&s->cfg, "battery.low", 20);
+    s->cfg_auto_hide = dots_config_bool(&s->cfg, "bar.autoHide.enable", 0);
+    s->cfg_autohide_hover = dots_config_int(&s->cfg, "bar.autoHide.hoverRegionWidth", 2);
+    s->cfg_autohide_push = dots_config_bool(&s->cfg, "bar.autoHide.pushWindows", 0);
+    s->cfg_bar_bottom = dots_config_bool(&s->cfg, "bar.bottom", 0);
+    if (s->cfg_autohide_hover < 1)
+        s->cfg_autohide_hover = 1;
+    if (s->cfg_autohide_hover > BAR_H)
+        s->cfg_autohide_hover = BAR_H;
     if (old_mem != s->cfg_show_memory || old_cpu != s->cfg_show_cpu ||
         old_swap != s->cfg_show_swap || old_acpu != s->cfg_always_cpu ||
         old_aswap != s->cfg_always_swap || old_mw != s->cfg_mem_warn ||
         old_cw != s->cfg_cpu_warn || old_sw != s->cfg_swap_warn ||
-        old_blow != s->cfg_battery_low)
+        old_blow != s->cfg_battery_low || old_hide != s->cfg_auto_hide)
         s->redraw = 1;
 
     // Enabling an indicator starts its data source immediately instead of
@@ -2003,7 +2077,8 @@ static void draw(struct state *s) {
     if (!s->configured || !s->data || !s->buffer)
         return;
 
-    const double W = s->buf_w;
+    struct bar_layout L = bar_layout_for(s);
+    const double W = L.w;
     cairo_surface_t *cs = cairo_image_surface_create_for_data(
         s->data, CAIRO_FORMAT_ARGB32, s->buf_w, s->buf_h, s->buf_w * 4);
     cairo_t *cr = cairo_create(cs);
@@ -2014,19 +2089,30 @@ static void draw(struct state *s) {
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
+    if (s->cfg_auto_hide && !s->bar_visible) {
+        cairo_destroy(cr);
+        cairo_surface_flush(cs);
+        wl_surface_attach(s->surface, s->buffer, 0, 0);
+        wl_surface_damage_buffer(s->surface, 0, 0, s->buf_w, s->buf_h);
+        wl_surface_commit(s->surface);
+        cairo_surface_destroy(cs);
+        return;
+    }
+
+    if (s->bar_y > 0)
+        cairo_translate(cr, 0, s->bar_y);
+
     // Bar background (cornerStyle 0: full width, square).
     cairo_set_source_rgba(cr, C_LAYER0.r, C_LAYER0.g, C_LAYER0.b, C_LAYER0.a);
     cairo_rectangle(cr, 0, 0, W, BAR_H);
     cairo_fill(cr);
 
-    const double middle_w = 360 + 4 + 270 + 4 + 360;
-    const double gx = floor((W - middle_w) / 2.0);
-    const double lg_group = gx;                    // left group (incl. 5px padding)
-    const double wg_group = gx + 360 + 4;          // workspaces group
-    const double rg_group = wg_group + 270 + 4;    // clock group
-    const double lg = lg_group + 5;                // content origin
-    const double wg = wg_group + 5;
-    const double rg = rg_group + 5;
+    const double lg_group = L.lg_group;            // left group
+    const double wg_group = L.wg_group;            // workspaces group
+    const double rg_group = L.rg_group;            // clock group
+    const double lg = L.lg;                        // content origin
+    const double wg = L.wg;
+    const double rg = L.rg;
 
     // Group backgrounds.
     cairo_set_source_rgba(cr, C_LAYER1.r, C_LAYER1.g, C_LAYER1.b, C_LAYER1.a);
@@ -2193,7 +2279,7 @@ static void draw(struct state *s) {
     pango_layout_get_pixel_size(ld, &wd, &hd);
     pango_layout_get_pixel_size(lD, &wD, &hD);
     double total = wt + 4 + wd + 4 + wD;
-    double clock_cx = 978.0;
+    double clock_cx = L.gx + 794.0;
     double cx0 = clock_cx - total / 2.0;
     cairo_set_source_rgba(cr, C_ON_LAYER1.r, C_ON_LAYER1.g, C_ON_LAYER1.b, 1);
     cairo_move_to(cr, cx0, 19 - ht / 2.0);
@@ -2281,7 +2367,7 @@ static void draw(struct state *s) {
         draw_icon_mid(cr, "keyboard_arrow_down", 14, 0, W - 7, 31, C_SUBTEXT);
     }
 
-    draw_popups(s, cr);
+    draw_popups(s, cr, s->cfg_bar_bottom);
 
     cairo_destroy(cr);
     cairo_surface_flush(cs);
@@ -2305,19 +2391,12 @@ static void ls_configure(void *data, struct zwlr_layer_surface_v1 *ls,
         h = SURFACE_H;
     if ((int)w != s->buf_w || (int)h != s->buf_h)
         create_buffer(s, (int)w, (int)h);
+    s->bar_y = s->cfg_bar_bottom ? (double)h - BAR_H : 0;
 
     // Only the visible bar strip is interactive; the shadow strip below
     // stays click-through.
-    if (s->compositor && s->surface) {
-        struct wl_region *region = wl_compositor_create_region(s->compositor);
-        if (region) {
-            wl_region_add(region, 0, 0, (int32_t)w, BAR_H);
-            wl_surface_set_input_region(s->surface, region);
-            wl_region_destroy(region);
-        }
-    }
-
     s->configured = 1;
+    apply_layer_state(s);
     s->redraw = 1;
 }
 
@@ -2370,6 +2449,7 @@ static void ptr_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
     s->ptr_inside = 1;
     s->ptr_x = wl_fixed_to_double(sx);
     s->ptr_y = wl_fixed_to_double(sy);
+    show_bar(s);
     update_hover(s);
 }
 
@@ -2380,6 +2460,7 @@ static void ptr_leave(void *data, struct wl_pointer *pointer, uint32_t serial,
     if (surface != s->surface)
         return;
     s->ptr_inside = 0;
+    s->last_pointer_ms = mono_ms();
     update_hover(s);
 }
 
@@ -2389,6 +2470,7 @@ static void ptr_motion(void *data, struct wl_pointer *pointer, uint32_t time,
     struct state *s = data;
     s->ptr_x = wl_fixed_to_double(sx);
     s->ptr_y = wl_fixed_to_double(sy);
+    show_bar(s);
     update_hover(s);
 }
 
@@ -2399,7 +2481,8 @@ static void ptr_button(void *data, struct wl_pointer *pointer, uint32_t serial,
     if (state != WL_POINTER_BUTTON_STATE_PRESSED)
         return;
     s->ptr_inside = 1;
-    handle_click(s, button, s->ptr_x, s->ptr_y);
+    s->last_pointer_ms = mono_ms();
+    handle_click(s, button, s->ptr_x, s->ptr_y - s->bar_y);
 }
 
 static void ptr_axis(void *data, struct wl_pointer *pointer, uint32_t time,
@@ -2408,7 +2491,7 @@ static void ptr_axis(void *data, struct wl_pointer *pointer, uint32_t time,
     struct state *s = data;
     if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL)
         return;
-    handle_scroll(s, s->ptr_x, s->ptr_y, wl_fixed_to_double(value));
+    handle_scroll(s, s->ptr_x, s->ptr_y - s->bar_y, wl_fixed_to_double(value));
 }
 
 static const struct wl_pointer_listener pointer_listener = {
@@ -2478,6 +2561,9 @@ int main(void) {
 
     struct state s;
     memset(&s, 0, sizeof s);
+    dots_config_init(&s.cfg);
+    dots_config_load(&s.cfg);
+    s.bar_visible = 1;
     s.active_ws = 1;
     s.resources_w = 110; // current default: RAM + CPU, no Swap
     s.media_x = 298;
@@ -2485,6 +2571,11 @@ int main(void) {
     if (forced_popup)
         s.popup = atoi(forced_popup);
     s.hypr_buf = malloc(1024 * 512);
+
+    read_config(&s);
+    if (s.cfg_auto_hide)
+        s.bar_visible = 0;
+    s.bar_y = s.cfg_bar_bottom ? SURFACE_H - BAR_H : 0;
 
     s.icon_kitty = load_png("kitty.png");
     s.icon_brave = load_png("brave.png");
@@ -2538,7 +2629,8 @@ int main(void) {
     zwlr_layer_surface_v1_set_size(s.layer_surface, 0, SURFACE_H);
     zwlr_layer_surface_v1_set_anchor(
         s.layer_surface,
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+        (s.cfg_bar_bottom ? ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
+                          : ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) |
         ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
         ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_exclusive_zone(s.layer_surface, 40);
@@ -2589,6 +2681,11 @@ int main(void) {
             read_cpu(&s);
             s.redraw = 1;
         }
+        if (s.cfg_auto_hide && s.bar_visible && !s.ptr_inside &&
+            !s.popup && !forced_popup &&
+            mono_ms() - s.last_pointer_ms > 300)
+            hide_bar(&s);
+
         if (s.redraw && s.configured) {
             s.redraw = 0;
             draw(&s);
@@ -2596,5 +2693,6 @@ int main(void) {
     }
 
     wl_display_disconnect(s.display);
+    dots_config_destroy(&s.cfg);
     return 0;
 }

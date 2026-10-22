@@ -19,6 +19,7 @@ static void usage(FILE *out) {
         "  status\n"
         "  config-get <dotted.path>\n"
         "  config-reload\n"
+        "  panel <target> <action>   # delegate ke Quickshell selama migrasi\n"
         "  shutdown\n"
         "  raw <json>\n"
         "\n"
@@ -95,6 +96,14 @@ int main(int argc, char **argv) {
             return 2;
         }
         json_object_object_add(req, "path", json_object_new_string(argv[2]));
+    } else if (strcmp(cmd, "panel") == 0) {
+        if (argc < 4) {
+            fprintf(stderr, "dots-ctl: panel butuh target dan action\n");
+            json_object_put(req);
+            return 2;
+        }
+        json_object_object_add(req, "target", json_object_new_string(argv[2]));
+        json_object_object_add(req, "action", json_object_new_string(argv[3]));
     } else if (strcmp(cmd, "raw") == 0) {
         if (argc < 3) {
             fprintf(stderr, "dots-ctl: raw butuh JSON\n");

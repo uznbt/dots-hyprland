@@ -144,6 +144,22 @@ static int send_response(int fd, json_object *resp) {
     return rc;
 }
 
+static int spawn_qs_panel(const char *target, const char *action) {
+    const char *config = getenv("DOTS_QS_CONFIG");
+    if (!config || !config[0])
+        config = "ii";
+
+    pid_t pid = fork();
+    if (pid < 0)
+        return -1;
+    if (pid == 0) {
+        execlp("qs", "qs", "-c", config, "ipc", "call",
+               target, action, (char *)NULL);
+        _exit(127);
+    }
+    return 0;
+}
+
 static void handle_request(struct dots_config *cfg, time_t started, int fd,
                            const char *line) {
     json_object *req = json_tokener_parse(line);
@@ -210,6 +226,24 @@ static void handle_request(struct dots_config *cfg, time_t started, int fd,
         json_object *resp = make_response(req, 1, NULL);
         send_response(fd, resp);
         running = 0;
+    } else if (strcmp(cmd, "panel") == 0) {
+        json_object *target_obj = NULL, *action_obj = NULL;
+        const char *target = NULL, *action = NULL;
+        if (json_object_object_get_ex(req, "target", &target_obj) &&
+            json_object_is_type(target_obj, json_type_string))
+            target = json_object_get_string(target_obj);
+        if (json_object_object_get_ex(req, "action", &action_obj) &&
+            json_object_is_type(action_obj, json_type_string))
+            action = json_object_get_string(action_obj);
+        if (!target || !target[0] || !action || !action[0]) {
+            send_response(fd, make_response(req, 0, "missing target/action"));
+        } else if (spawn_qs_panel(target, action) < 0) {
+            send_response(fd, make_response(req, 0, "cannot spawn qs"));
+        } else {
+            json_object *resp = make_response(req, 1, NULL);
+            add_data_string(resp, "delegated", "quickshell");
+            send_response(fd, resp);
+        }
     } else if (strcmp(cmd, "toggle") == 0 ||
                strcmp(cmd, "open") == 0 ||
                strcmp(cmd, "close") == 0) {
@@ -286,6 +320,7 @@ int main(void) {
     signal(SIGTERM, on_signal);
     signal(SIGHUP, on_signal);
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGCHLD, SIG_IGN);
 
     struct dots_config cfg;
     dots_config_init(&cfg);

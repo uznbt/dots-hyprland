@@ -7,9 +7,12 @@ Status: **Fase 1 — bar native sudah bisa dijalankan, belum menjadi default.**
 ## Yang sudah ada
 
 - `dots-bar`: bar Wayland C + cairo/pango, hasil port dari `docs/cbar`.
-- Build Meson.
-- Skrip uji `scripts/run-bar.sh` yang menutup bar Quickshell sementara dan
-  mengembalikannya saat keluar.
+  Layout tengah dihitung dari lebar output, mendukung auto-hide dan bar bawah.
+- `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
+- `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
+- Build Meson + smoke test IPC.
+- Skrip uji `scripts/run-bar.sh` yang menyalakan daemon, menutup bar Quickshell
+  sementara, dan mengembalikan semuanya saat keluar.
 - Aset bar (ikon aplikasi dan spark) di `assets/`.
 
 ## Build
@@ -42,12 +45,28 @@ Skrip akan:
 Jangan jadikan ini default harian sampai gate G1 lulus. Quickshell masih
 menangani sidebar, overview, notifikasi, OSD, dan panel lain.
 
+## Daemon dan CLI
+
+```sh
+./native/build/dotsd &
+./native/build/dots-ctl ping
+./native/build/dots-ctl status
+./native/build/dots-ctl config-get bar.resources.showMemory
+./native/build/dots-ctl panel sidebarRight toggle
+```
+
+`panel` masih mendelegasikan ke Quickshell. Ini adapter transisi, bukan panel
+native. Kalau `dotsd` tidak berjalan, `dots-bar` fallback memanggil `qs`
+langsung sehingga fitur harian tidak mati.
+
 ## Batasan saat ini
 
-- Geometri masih membawa konstanta prototipe 1366×768.
-- Interaksi sidebar/media masih memanggil Quickshell lewat `qs ... ipc call`.
-- Belum ada `dotsd`, `dots-ctl`, atau `dots-session`.
-- Belum ada multi-output, auto-hide, tray, dan popup interaktif penuh.
+- Layout horizontal sudah dihitung dari lebar output, tetapi belum ada bentuk
+  shortened, vertical, atau multi-output.
+- Interaksi sidebar/media masih didelegasikan ke Quickshell lewat `dotsd`.
+- Belum ada `dots-session`; `run-bar.sh` adalah harness uji, bukan supervisor
+  produksi.
+- Belum ada tray, popup interaktif penuh, dan animasi auto-hide.
 - Source `src/ui/bar.c` masih berupa port awal; refactor menjadi modul
   dilakukan setelah fondasi daemon/IPC siap.
 
@@ -68,10 +87,10 @@ Bar native yang diuji pada 1366×768:
 
 | Metrik | Nilai |
 | --- | ---: |
-| PSS | 10,9 MB |
-| RSS | 31,8 MB |
-| Anonymous | 6,6 MB |
-| Private dirty | 6,7 MB |
+| PSS | 11,2 MB (konfigurasi json-c) |
+| RSS | 32,3 MB |
+| Anonymous | 6,8 MB |
+| Private dirty | 6,9 MB |
 
 Angka ini hanya bar, bukan pengganti total shell. Target dan urutan lengkap
 ada di `/home/uznbt/.opencode/plan/rombak-dots-ke-c.md`.
