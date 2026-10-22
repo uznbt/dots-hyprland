@@ -101,6 +101,13 @@ memakai UPower (`TimeToEmpty`, `EnergyRate`, `Capacity`, `State`) supaya
 nilainya sama dengan service `Battery.qml`; RAM memakai `MemAvailable`
 seperti `ResourceUsage.qml`.
 
+Perbandingan (atas: Quickshell asli, bawah: cbar; nilai live seperti uptime,
+CPU, dan waktu baterai berbeda antar pengambilan):
+
+| Jam | Resource | Baterai |
+| --- | --- | --- |
+| ![](popup-clock.png) | ![](popup-resources.png) | ![](popup-battery.png) |
+
 ## Memori
 
 Diukur dengan `/proc/<pid>/smaps_rollup` setelah popup dan bell ditambahkan
