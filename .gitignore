@@ -27,3 +27,6 @@ __pycache__/
 
 # Temporary clones used for reference
 /shell
+
+# Agent skills installed from upstream (restore: npx skills experimental_install)
+/.agents/
