@@ -210,9 +210,16 @@ struct state {
     time_t last_sec, last_res, last_media;
 };
 
+enum bar_form {
+    BAR_FORM_FULL = 0,
+    BAR_FORM_SHORT = 1,
+    BAR_FORM_HELLA_SHORT = 2,
+};
+
 struct bar_layout {
     double w;
     double middle_w;
+    double side_w;
     double gx;
     double lg_group;
     double wg_group;
@@ -220,18 +227,23 @@ struct bar_layout {
     double lg;
     double wg;
     double rg;
+    int form;
 };
 
 static struct bar_layout bar_layout_for(const struct state *s) {
     struct bar_layout l;
     l.w = s->buf_w > 0 ? s->buf_w : (s->out_w > 0 ? s->out_w : 1366);
-    /* Lebar grup tengah mengikuti BarContent.qml pada bentuk penuh. */
-    l.middle_w = 360 + 4 + 270 + 4 + 360;
+    /* Samakan ambang BarContent.qml: <=1200 dan <=1000 piksel. */
+    l.form = l.w <= 1000 ? BAR_FORM_HELLA_SHORT :
+             l.w <= 1200 ? BAR_FORM_SHORT : BAR_FORM_FULL;
+    l.side_w = l.form == BAR_FORM_HELLA_SHORT ? 190 :
+               l.form == BAR_FORM_SHORT ? 280 : 360;
+    l.middle_w = l.side_w * 2 + 4 + 270 + 4;
     l.gx = floor((l.w - l.middle_w) / 2.0);
     if (l.gx < 0)
         l.gx = 0;
     l.lg_group = l.gx;
-    l.wg_group = l.lg_group + 360 + 4;
+    l.wg_group = l.lg_group + l.side_w + 4;
     l.rg_group = l.wg_group + 270 + 4;
     l.lg = l.lg_group + 5;
     l.wg = l.wg_group + 5;
@@ -1041,8 +1053,10 @@ static void handle_click(struct state *s, uint32_t button, double x, double y) {
         }
         return;
     }
-    // Media widget. Its left edge follows the Resources group.
-    if (x >= s->media_x + 5 && x < l.lg_group + 355) {
+    // Media widget. Its left edge follows the Resources group; the
+    // smallest form hides it entirely.
+    if (l.form < BAR_FORM_HELLA_SHORT &&
+        x >= s->media_x + 5 && x < l.lg_group + l.side_w - 5) {
         if (button == BTN_LEFT)
             call_qs("mediaControls", "toggle");
         else if (button == BTN_MIDDLE)
@@ -1072,7 +1086,7 @@ static void handle_scroll(struct state *s, double x, double y, double dy) {
     } else if (x >= l.wg_group && x < l.wg_group + 270) {
         // Scroll down/up on workspaces: next/previous relative workspace.
         focus_workspace_rel(dy > 0 ? 1 : -1);
-    } else if (x >= l.rg_group + 360) {
+    } else if (x >= l.rg_group + l.side_w) {
         change_volume(dy < 0 ? 1 : 0);
     }
 }
@@ -1098,15 +1112,17 @@ static void update_hover(struct state *s) {
         double x = s->ptr_x;
         if (x < l.gx)
             mask |= 1;
-        else if (x >= l.rg_group + 360)
+        else if (x >= l.rg_group + l.side_w)
             mask |= 2;
 
         if (x >= l.gx && s->resources_w > 8 &&
             x < l.gx + s->resources_w + 9)
             popup = 2;      // resources
-        else if (x >= l.rg_group + 318 && x < l.rg_group + 360)
+        else if (l.form < BAR_FORM_HELLA_SHORT &&
+                 x >= l.rg_group + l.side_w - 72 &&
+                 x < l.rg_group + l.side_w - 24)
             popup = 3;      // battery
-        else if (x >= l.gx + 721 && x < l.gx + 866)
+        else if (x >= l.rg_group && x < l.rg_group + l.side_w)
             popup = 1;      // clock
     }
     if (mask != s->hover_mask || popup != s->popup) {
@@ -1689,6 +1705,8 @@ static void draw_popups(struct state *s, cairo_t *cr, int above) {
         struct bar_layout l = bar_layout_for(s);
         double center = l.gx + 70.5 + (s->resources_w - 110.0) / 2.0;
         double x = center - w / 2.0;
+        if (x < 10) x = 10;
+        if (x + w > l.w - 10) x = l.w - w - 10;
         double y = above ? -50.0 - h : 50.0;
         draw_popup_card(cr, x, y, w, h);
         double cx = x + 10;
@@ -1725,7 +1743,14 @@ static void draw_popups(struct state *s, cairo_t *cr, int above) {
         if (h < 110)
             h = 110;
         struct bar_layout l = bar_layout_for(s);
-        double x = l.gx + 806.5 - w / 2.0;
+        double clock_cx = l.form == BAR_FORM_FULL
+            ? l.gx + 806.5
+            : l.rg_group + (l.form == BAR_FORM_SHORT
+                            ? (l.side_w - 34.0) / 2.0
+                            : l.side_w / 2.0);
+        double x = clock_cx - w / 2.0;
+        if (x < 10) x = 10;
+        if (x + w > l.w - 10) x = l.w - w - 10;
         double y = above ? -50.0 - h : 50.0;
         draw_popup_card(cr, x, y, w, h);
         double cx = x + 10, right = x + w - 10;
@@ -1798,7 +1823,9 @@ static void draw_popups(struct state *s, cairo_t *cr, int above) {
     if (!show_time) h -= 24.5;
     if (!show_rate) h -= 24.5;
     struct bar_layout l = bar_layout_for(s);
-    double x = l.gx + 988.5 - w / 2.0;
+    double x = l.rg_group + l.side_w - 20.0 - w / 2.0;
+    if (x < 10) x = 10;
+    if (x + w > l.w - 10) x = l.w - w - 10;
     double y = above ? -50.0 - h : 50.0;
     draw_popup_card(cr, x, y, w, h);
     double cx = x + 10, right = x + w - 10;
@@ -2366,11 +2393,11 @@ static void draw(struct state *s) {
 
     // Group backgrounds.
     cairo_set_source_rgba(cr, C_LAYER1.r, C_LAYER1.g, C_LAYER1.b, C_LAYER1.a);
-    rounded_rect(cr, lg_group, 4, 360, 32, 12);
+    rounded_rect(cr, lg_group, 4, L.side_w, 32, 12);
     cairo_fill(cr);
     rounded_rect(cr, wg_group, 4, 270, 32, 12);
     cairo_fill(cr);
-    rounded_rect(cr, rg_group, 4, 360, 32, 12);
+    rounded_rect(cr, rg_group, 4, L.side_w, 32, 12);
     cairo_fill(cr);
 
     // Left sidebar button background (behind the spark icon).
@@ -2400,11 +2427,14 @@ static void draw(struct state *s) {
         cairo_restore(cr);
     }
 
-    // Left: active window.
-    draw_text(cr, s->aw_class[0] ? s->aw_class : "Desktop", 12, VAR_MAIN,
-              103.5, 63.0, 6, C_SUBTEXT);
-    draw_text(cr, s->aw_title[0] ? s->aw_title : "", 15, VAR_MAIN,
-              98.5, 63.5, 17.5, C_ON_LAYER0);
+    // Left: active window. QML hides it in both shortened forms to leave
+    // room for the resource badges.
+    if (L.form == BAR_FORM_FULL) {
+        draw_text(cr, s->aw_class[0] ? s->aw_class : "Desktop", 12, VAR_MAIN,
+                  103.5, 63.0, 6, C_SUBTEXT);
+        draw_text(cr, s->aw_title[0] ? s->aw_title : "", 15, VAR_MAIN,
+                  98.5, 63.5, 17.5, C_ON_LAYER0);
+    }
 
     // Resources + media. Resource visibility follows Quickshell's
     // Config.options.bar.resources: RAM, optional Swap, optional CPU. The
@@ -2465,19 +2495,22 @@ static void draw(struct state *s) {
     if (progress < 0) progress = 0;
     if (progress > 1) progress = 1;
     int playing = strcmp(s->media_status, "Playing") == 0;
-    draw_badge(cr, media_x + 10, 20, progress,
-               playing ? "pause" : "music_note", 0);
+    if (L.form < BAR_FORM_HELLA_SHORT) {
+        draw_badge(cr, media_x + 10, 20, progress,
+                   playing ? "pause" : "music_note", 0);
 
-    char media[1024];
-    if (s->media_title[0])
-        snprintf(media, sizeof media, "%s%s%s", s->media_title,
-                 s->media_artist[0] ? " • " : "",
-                 s->media_artist);
-    else
-        snprintf(media, sizeof media, "No media");
-    double media_max = (lg + 350) - (media_x + 24) - 4;
-    if (media_max < 0) media_max = 0;
-    draw_text_mid(cr, media, 15, VAR_MAIN, media_max, media_x + 24, 20, C_ON_LAYER1);
+        char media[1024];
+        if (s->media_title[0])
+            snprintf(media, sizeof media, "%s%s%s", s->media_title,
+                     s->media_artist[0] ? " • " : "",
+                     s->media_artist);
+        else
+            snprintf(media, sizeof media, "No media");
+        double media_max = (lg_group + L.side_w - 10) - (media_x + 24) - 4;
+        if (media_max < 0) media_max = 0;
+        draw_text_mid(cr, media, 15, VAR_MAIN, media_max, media_x + 24, 20,
+                      C_ON_LAYER1);
+    }
 
     // Workspaces.
     for (int i = 0; i < NWS; i++) {
@@ -2520,34 +2553,47 @@ static void draw(struct state *s) {
         }
     }
 
-    // Clock.
+    // Clock. Shortened forms drop the date and, at the smallest size, the
+    // battery too, mirroring BarContent.qml.
     PangoLayout *lt = make_layout(cr, s->clock_time, 17, VAR_MAIN, 0);
-    PangoLayout *ld = make_layout(cr, "•", 15, VAR_MAIN, 0);
-    PangoLayout *lD = make_layout(cr, s->clock_date, 15, VAR_MAIN, 0);
-    int wt, ht, wd, hd, wD, hD;
+    int wt, ht;
     pango_layout_get_pixel_size(lt, &wt, &ht);
-    pango_layout_get_pixel_size(ld, &wd, &hd);
-    pango_layout_get_pixel_size(lD, &wD, &hD);
-    double total = wt + 4 + wd + 4 + wD;
-    double clock_cx = L.gx + 794.0;
-    double cx0 = clock_cx - total / 2.0;
-    cairo_set_source_rgba(cr, C_ON_LAYER1.r, C_ON_LAYER1.g, C_ON_LAYER1.b, 1);
-    cairo_move_to(cr, cx0, 19 - ht / 2.0);
-    pango_cairo_show_layout(cr, lt);
-    cx0 += wt + 4;
-    cairo_move_to(cr, cx0, 20 - hd / 2.0);
-    pango_cairo_show_layout(cr, ld);
-    cx0 += wd + 4;
-    cairo_move_to(cr, cx0, 20 - hD / 2.0);
-    pango_cairo_show_layout(cr, lD);
+    double clock_cx;
+    if (L.form == BAR_FORM_HELLA_SHORT) {
+        clock_cx = rg_group + L.side_w / 2.0;
+        cairo_set_source_rgba(cr, C_ON_LAYER1.r, C_ON_LAYER1.g, C_ON_LAYER1.b, 1);
+        cairo_move_to(cr, clock_cx - wt / 2.0, 19 - ht / 2.0);
+        pango_cairo_show_layout(cr, lt);
+    } else {
+        PangoLayout *ld = make_layout(cr, "•", 15, VAR_MAIN, 0);
+        PangoLayout *lD = make_layout(cr, s->clock_date, 15, VAR_MAIN, 0);
+        int wd, hd, wD, hD;
+        pango_layout_get_pixel_size(ld, &wd, &hd);
+        pango_layout_get_pixel_size(lD, &wD, &hD);
+        double total = wt + 4 + wd + 4 + wD;
+        clock_cx = L.form == BAR_FORM_FULL
+            ? L.gx + 794.0
+            : rg_group + (L.side_w - 34.0) / 2.0;
+        double cx0 = clock_cx - total / 2.0;
+        cairo_set_source_rgba(cr, C_ON_LAYER1.r, C_ON_LAYER1.g, C_ON_LAYER1.b, 1);
+        cairo_move_to(cr, cx0, 19 - ht / 2.0);
+        pango_cairo_show_layout(cr, lt);
+        cx0 += wt + 4;
+        cairo_move_to(cr, cx0, 20 - hd / 2.0);
+        pango_cairo_show_layout(cr, ld);
+        cx0 += wd + 4;
+        cairo_move_to(cr, cx0, 20 - hD / 2.0);
+        pango_cairo_show_layout(cr, lD);
+        g_object_unref(ld);
+        g_object_unref(lD);
+    }
     g_object_unref(lt);
-    g_object_unref(ld);
-    g_object_unref(lD);
 
-    // Battery.
-    double bat_x = rg + 350 - 30;
-    draw_battery(cr, bat_x, 11, s->battery_pct / 100.0, s->battery_charging,
-                 s->battery_pct <= s->cfg_battery_low);
+    if (L.form < BAR_FORM_HELLA_SHORT) {
+        double bat_x = rg_group + L.side_w - 35;
+        draw_battery(cr, bat_x, 11, s->battery_pct / 100.0, s->battery_charging,
+                     s->battery_pct <= s->cfg_battery_low);
+    }
 
     // Right indicators: bell (+ unread dot), wifi, bluetooth.
     // With the notification indicator shown the button is 107px wide

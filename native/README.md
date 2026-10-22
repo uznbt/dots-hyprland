@@ -8,8 +8,9 @@ Status: **Fase 1 — bar native multi-output sudah bisa dijalankan, belum menjad
 
 - `dots-bar`: bar Wayland C + cairo/pango, hasil port dari `docs/cbar`.
   Satu proses membuat satu layer surface per output, layout dihitung dari
-  lebar masing-masing output, mendukung `screenList`, hotplug, auto-hide,
-  bar bawah, dan warna Material You dari `generated/colors.json`.
+  lebar masing-masing output, mendukung bentuk penuh/shortened (≤1200 px dan
+  ≤1000 px), `screenList`, hotplug, auto-hide, bar bawah, dan warna Material
+  You dari `generated/colors.json`.
 - `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
 - `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
 - `dots-dispatch`: dispatcher aksi dengan fallback `qs`, untuk migrasi keybind.
@@ -96,7 +97,7 @@ langsung sehingga fitur harian tidak mati.
 
 ## Batasan saat ini
 
-- Belum ada bentuk shortened atau vertical.
+- Belum ada bentuk vertical; bentuk shortened sudah mengikuti ambang QML.
 - Interaksi sidebar/media masih didelegasikan ke Quickshell lewat `dotsd`.
 - `dots-session` masih supervisor tipis; belum ada health-check otomatis,
   restart, atau watchdog proses.
