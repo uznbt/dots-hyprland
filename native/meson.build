@@ -66,6 +66,25 @@ dots_bar = executable(
 )
 
 # ---------------------------------------------------------------------------
+# dots-osd
+#
+# OSD volume/brightness transisi. Proses hanya hidup selama overlay tampil;
+# invocation berikutnya memakai Unix datagram socket ke instance aktif. Surface
+# ini nanti bisa dipindahkan ke dots-shell tanpa mengubah protokol command.
+# ---------------------------------------------------------------------------
+dots_osd = executable(
+  'dots-osd',
+  [
+    'src/ui/osd.c',
+    protocol_sources,
+  ],
+  include_directories: incs,
+  link_with: dots_common,
+  dependencies: [wayland_client, cairo, pangocairo, json_c, math],
+  install: true,
+)
+
+# ---------------------------------------------------------------------------
 # dotsd / dots-ctl — fondasi IPC. Layanan sistem menyusul di Fase 2.
 # ---------------------------------------------------------------------------
 dotsd = executable(
@@ -130,6 +149,13 @@ test(
   find_program('tests/test-ipc.sh'),
   env: ['BUILD_DIR=' + meson.current_build_dir()],
   timeout: 20,
+)
+
+test(
+  'osd-smoke',
+  find_program('tests/test-osd.sh'),
+  env: ['BUILD_DIR=' + meson.current_build_dir()],
+  timeout: 10,
 )
 
 summary({

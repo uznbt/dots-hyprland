@@ -18,6 +18,9 @@ Singleton {
     property bool mediaControlsOpen: false
     property bool osdBrightnessOpen: false
     property bool osdVolumeOpen: false
+    // Transisi migrasi: dots-osd menonaktifkan OSD Quickshell sementara agar
+    // tidak ada dua kartu OSD saat volume/brightness berubah.
+    property bool nativeOsdActive: false
     property bool oskOpen: false
     property bool overlayOpen: false
     property bool overviewAppsVisible: true

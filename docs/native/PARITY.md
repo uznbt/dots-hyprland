@@ -18,8 +18,8 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | --- | --- | --- |
 | 0. Baseline/kontrak | selesai | branch, tag, backup, matrix awal |
 | 1. Fondasi + bar | berjalan | `dots-bar`, `dotsd`, `dots-ctl`, `dots-dispatch`, `dots-session` |
-| 2. Daemon/services | belum | |
-| 3. Panel inti + daily | belum | |
+| 2. Daemon/services | belum | fondasi IPC sudah ada, layanan sistem menyusul |
+| 3. Panel inti + daily | berjalan | OSD volume/brightness native; notifikasi/media/dock menyusul |
 | 4. Sidebar/overview | belum | |
 | 5. Settings/utilitas | belum | |
 | 6. Decommission | belum | |
@@ -54,6 +54,25 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Supervisor hybrid | ya | `dots-session start/stop` |
 | Backend switch | sebagian | `hybrid`/`quickshell`; `native` ditolak sampai panel native ada |
 
+## OSD
+
+| Fitur | Native | Catatan |
+| --- | --- | --- |
+| Volume naik/turun/mute | ya | `wpctl`; nilai dibaca ulang setelah aksi |
+| Brightness naik/turun | sebagian | `brightnessctl` untuk output internal; monitor eksternal tetap Quickshell/ddcutil |
+| Kartu OSD | ya | 200×64 px, ikon Material Symbols, label, persen, progress |
+| Posisi atas/bawah | ya | mengikuti `bar.bottom`; margin `barHeight` (40/50) |
+| Monitor fokus | ya | `hyprctl monitors -j`; fallback output pertama; `DOTS_OUTPUT` untuk tes |
+| Timeout | ya | `osd.timeout` (default 1000 ms), override `DOTS_OSD_TIMEOUT_MS` |
+| Fade in/out | ya | 120/140 ms |
+| Singleton tanpa proses idle | ya | Unix datagram `$XDG_RUNTIME_DIR/dots/osd.sock`; proses keluar setelah fade |
+| Trigger keybind | ya | `dots-dispatch volume`/brightness internal bila ada di PATH; fallback `wpctl`/Quickshell |
+| Bridge OSD Quickshell | ya | `osdVolume nativeOn/nativeOff` + safety timer; fallback QML tetap hidup |
+| Rotasi/scale ikon brightness | belum | |
+| ddcutil / monitor eksternal | belum | baru backlight internal |
+| Lokalisasi label | belum | label Inggris |
+| Warna Material You penuh | sebagian | memakai konstanta layer/primary yang sama dengan bar |
+
 ## Angka
 
 | Komponen | PSS |
@@ -62,6 +81,8 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Quickshell + bar | 139 MB |
 | `dots-bar` 1 output | 11,3 MB |
 | `dots-bar` 2 output (1366 + 1920) | 12,5 MB |
+| `dots-osd` saat tampil | 9,3 MB (RSS 35,9 MB, anon 4,6 MB) |
+| `dots-osd` idle | 0 MB (proses keluar) |
 | `dotsd` idle | 0,4 MB |
 
 ## Gate berikutnya
@@ -73,5 +94,11 @@ G1 belum lulus karena:
 - belum diuji 3 hari sebagai bar default.
 
 Vertical bar dan corner style sudah selesai (hug/float/plain, kiri/kanan,
-termasuk popup di samping bar). Langkah berikutnya: port panel inti ke Wayland
-native; setelah itu baru `dots-session backend native` boleh dibuka.
+termasuk popup di samping bar). OSD volume/brightness native juga sudah
+berjalan, termasuk bridge supaya OSD Quickshell tidak tampil ganda saat keybind
+memakai `dots-dispatch` atau saat `dots-osd` dipanggil langsung.
+
+Langkah berikutnya: notification server/popup native (jangan ambil alih
+`org.freedesktop.Notifications` sebelum popup siap), lalu media controls, dock,
+session/power menu, display panel, wallpaper, dan lock. Setelah panel inti itu
+ada, baru `dots-session backend native` boleh dibuka.

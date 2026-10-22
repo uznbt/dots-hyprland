@@ -32,6 +32,8 @@ Scope {
     ]
 
     function triggerOsd() {
+        if (GlobalStates.nativeOsdActive)
+            return;
         GlobalStates.osdVolumeOpen = true;
         osdTimeout.restart();
     }
@@ -45,6 +47,15 @@ Scope {
             GlobalStates.osdVolumeOpen = false;
             root.protectionMessage = "";
         }
+    }
+
+    // Jaring pengaman kalau dots-osd mati sebelum sempat memanggil nativeOff.
+    Timer {
+        id: nativeOsdSafety
+        interval: Math.max(3000, Config.options.osd.timeout + 2000)
+        repeat: false
+        running: false
+        onTriggered: GlobalStates.nativeOsdActive = false
     }
 
     Connections {
@@ -216,6 +227,19 @@ Scope {
 
         function toggle() {
             GlobalStates.osdVolumeOpen = !GlobalStates.osdVolumeOpen;
+        }
+
+        // Dipanggil dots-osd selama transisi. Saat native OSD hidup,
+        // perubahan Audio/Brightness tidak boleh memunculkan kartu QML.
+        function nativeOn() {
+            GlobalStates.nativeOsdActive = true;
+            GlobalStates.osdVolumeOpen = false;
+            nativeOsdSafety.restart();
+        }
+
+        function nativeOff() {
+            nativeOsdSafety.stop();
+            GlobalStates.nativeOsdActive = false;
         }
     }
     GlobalShortcut {

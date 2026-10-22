@@ -37,13 +37,13 @@ hl.bind("SUPER + J", hl.dsp.global("quickshell:barToggle"), { description = "She
 hl.bind("CTRL + ALT + Delete", hl.dsp.exec_cmd(qsIsAlive .. " || pkill wlogout || wlogout -p layer-shell"))
 hl.bind("SHIFT + SUPER + ALT + Slash", hl.dsp.exec_cmd("qs -p $HOME/.config/quickshell/$qsConfig/welcome.qml"))
 
-hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd(qsIpcCall .. " brightness increment || brightnessctl s 5%+"),
+hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd("dots-dispatch brightness up 2>/dev/null || " .. qsIpcCall .. " brightness increment || brightnessctl s 5%+"),
     { locked = true, repeating = true })
-hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd(qsIpcCall .. " brightness decrement || brightnessctl s 5%-"),
+hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("dots-dispatch brightness down 2>/dev/null || " .. qsIpcCall .. " brightness decrement || brightnessctl s 5%-"),
     { locked = true, repeating = true })
-hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+ -l 1.5"),
+hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("dots-dispatch volume up 2>/dev/null || wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+ -l 1.5"),
     { locked = true, repeating = true })
-hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"),
+hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("dots-dispatch volume down 2>/dev/null || wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"),
     { locked = true, repeating = true })
 
 hl.bind("CTRL + SUPER + T", hl.dsp.global("quickshell:wallpaperSelectorToggle"),
@@ -138,8 +138,8 @@ hl.bind("SUPER + SHIFT + P", hl.dsp.exec_cmd("playerctl play-pause"),
     { locked = true, description = "Media: Play/pause media" })
 hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
 hl.bind("XF86AudioPause", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
-hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SINK@ toggle"), { locked = true })
-hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SINK@ toggle"),
+hl.bind("XF86AudioMute", hl.dsp.exec_cmd("dots-dispatch volume mute 2>/dev/null || wpctl set-mute @DEFAULT_SINK@ toggle"), { locked = true })
+hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd("dots-dispatch volume mute 2>/dev/null || wpctl set-mute @DEFAULT_SINK@ toggle"),
     { locked = true, description = "Media: Toggle mute" })
 hl.bind("ALT + XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true })
 hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true })

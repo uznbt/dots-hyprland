@@ -2,7 +2,8 @@
 
 Implementasi native C untuk menggantikan Quickshell/QML secara bertahap.
 
-Status: **Fase 1 — bar native multi-output sudah bisa dijalankan, belum menjadi default.**
+Status: **Fase 1 — bar native multi-output dan OSD volume/brightness sudah
+bisa dijalankan, belum menjadi default.**
 
 ## Yang sudah ada
 
@@ -14,9 +15,13 @@ Status: **Fase 1 — bar native multi-output sudah bisa dijalankan, belum menjad
   `generated/colors.json`.
 - `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
 - `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
-- `dots-dispatch`: dispatcher aksi dengan fallback `qs`, untuk migrasi keybind.
+- `dots-dispatch`: dispatcher aksi dengan fallback `qs`, untuk migrasi keybind;
+  volume/brightness diarahkan ke `dots-osd` bila tersedia.
 - `dots-session`: supervisor tipis untuk mode hybrid; start/stop/status/backend.
-- Build Meson + smoke test IPC.
+- `dots-osd`: overlay OSD volume/brightness native. Proses hanya hidup selama
+  overlay tampil; invocation berikutnya mengirim command lewat Unix datagram
+  socket ke instance aktif. Ada fade in/out dan timeout dari `osd.timeout`.
+- Build Meson + smoke test IPC/OSD.
 - Skrip uji `scripts/run-bar.sh` yang menyalakan daemon, menutup bar Quickshell
   sementara, dan mengembalikan semuanya saat keluar.
 - Aset bar (ikon aplikasi dan spark) di `assets/`.
@@ -26,6 +31,7 @@ Status: **Fase 1 — bar native multi-output sudah bisa dijalankan, belum menjad
 ```sh
 meson setup native/build native
 meson compile -C native/build
+meson test -C native/build --print-errorlogs
 ```
 
 Dependensi saat ini:
@@ -33,7 +39,12 @@ Dependensi saat ini:
 - `wayland-client`
 - `cairo`
 - `pangocairo`
+- `json-c`
 - `pkg-config`, `meson`, `ninja`, compiler C
+
+Runtime untuk OSD: `wpctl` (PipeWire), `brightnessctl`, dan opsional
+`hyprctl` untuk memilih monitor fokus. `qs` hanya dipakai sebagai bridge
+transisi dan fallback.
 
 ## Jalankan untuk uji coba
 
@@ -49,7 +60,42 @@ Skrip akan:
 4. membuka kembali bar Quickshell saat `dots-bar` berhenti.
 
 Jangan jadikan ini default harian sampai gate G1 lulus. Quickshell masih
-menangani sidebar, overview, notifikasi, OSD, dan panel lain.
+menangani sidebar, overview, notifikasi, media, dan panel lain.
+
+## OSD volume/brightness
+
+```sh
+./native/build/dots-osd show volume 0.42
+./native/build/dots-osd show brightness 0.20
+./native/build/dots-osd volume up
+./native/build/dots-osd volume down
+./native/build/dots-osd volume mute
+./native/build/dots-osd brightness up
+./native/build/dots-osd brightness down
+./native/build/dots-osd hide
+```
+
+Proses pertama membuka layer surface di monitor fokus, menggambar kartu, lalu
+keluar setelah timeout. Invocation berikutnya tidak membuat proses kedua:
+command dikirim ke socket `$XDG_RUNTIME_DIR/dots/osd.sock` dan instance yang
+sedang tampil memperbarui nilainya. `DOTS_OSD_TIMEOUT_MS` menimpa timeout untuk
+tes, dan `DOTS_OUTPUT` memaksa output tertentu.
+
+`dots-dispatch` adalah jalur yang dipakai keybind:
+
+```sh
+./native/build/dots-dispatch volume up
+./native/build/dots-dispatch brightness down
+```
+
+Kalau `dots-osd` tidak ditemukan, dispatcher jatuh ke `wpctl`/Quickshell.
+Brightness native hanya dipakai untuk output internal (`eDP`/`LVDS`/`DSI`);
+monitor eksternal tetap lewat Quickshell agar ddcutil tidak kehilangan
+fungsinya. Keybind di repo memakai bentuk `dots-dispatch ... || fallback`, jadi
+keybind tetap berfungsi saat binary native belum ada di `PATH`. Selama OSD
+native tampil, `dots-osd` menonaktifkan sementara OSD Quickshell lewat
+`osdVolume nativeOn/nativeOff`; timer pengaman di Quickshell mengaktifkannya
+kembali kalau proses native mati mendadak.
 
 ## Uji multi-output
 
@@ -102,6 +148,10 @@ langsung sehingga fitur harian tidak mati.
 - Popup bar (jam/resource/baterai) masih non-interaktif; popup vertical
   ditempatkan di samping bar, bukan jendela terpisah.
 - Interaksi sidebar/media masih didelegasikan ke Quickshell lewat `dotsd`.
+- OSD baru volume/brightness backlight internal. ddcutil/monitor eksternal,
+  rotasi/scale ikon brightness, dan lokalisasi label belum ada.
+- `dots-osd` memilih monitor fokus saat OSD mulai; belum mengikuti perpindahan
+  fokus selama overlay masih tampil.
 - `dots-session` masih supervisor tipis; belum ada health-check otomatis,
   restart, atau watchdog proses.
 - Belum ada tray, popup interaktif penuh, dan animasi auto-hide.
@@ -123,6 +173,9 @@ native/
   src/ctl/
   src/session/
   src/ui/bar.c
+  src/ui/osd.c
+  tests/test-ipc.sh
+  tests/test-osd.sh
 ```
 
 ## Ukuran
@@ -140,5 +193,16 @@ Dengan dua output (1366×768 + headless 1920×1080) PSS naik ke sekitar
 12,5 MB karena ada buffer kedua. `dotsd` (idle, config sudah dimuat): PSS
 sekitar 0,4 MB.
 
-Angka ini hanya bar, bukan pengganti total shell. Target dan urutan lengkap
-ada di `/home/uznbt/.opencode/plan/rombak-dots-ke-c.md`.
+OSD diukur saat kartu volume tampil (1366×768):
+
+| Metrik | Nilai |
+| --- | ---: |
+| PSS | 9,3 MB |
+| RSS | 35,9 MB |
+| Anonymous | 4,6 MB |
+| Private dirty | 4,6 MB |
+
+Saat OSD tidak tampil, tidak ada proses `dots-osd`; invocation berikutnya
+membuka proses baru dan mengirim command ke socket bila sudah ada instance.
+Angka ini bukan pengganti total shell. Target dan urutan lengkap ada di
+`/home/uznbt/.opencode/plan/rombak-dots-ke-c.md`.
