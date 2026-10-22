@@ -837,12 +837,16 @@ static void apply_layer_state(struct state *s) {
     double w = s->buf_w > 0 ? s->buf_w : (s->out_w > 0 ? s->out_w : 1366);
     int input_h = (s->cfg_auto_hide && !s->bar_visible)
         ? s->cfg_autohide_hover : BAR_H;
+    // Saat bar bawah tersembunyi, dock bisa menutupi tepi bawah layar. Pakai
+    // tepi atas bar (yang masih di atas dock) sebagai hover strip.
     int input_y = (int)s->bar_y;
-    if (s->cfg_auto_hide && !s->bar_visible && s->cfg_bar_bottom)
-        input_y = (int)(SURFACE_H - input_h);
     struct wl_region *region = wl_compositor_create_region(s->compositor);
     if (region) {
         wl_region_add(region, 0, input_y, (int32_t)w, input_h);
+        // Bar bawah juga bisa dipicu dari tepi bawah surface. Kalau dock
+        // menutupinya, strip di tepi atas bar tetap bisa dijangkau.
+        if (s->cfg_auto_hide && !s->bar_visible && s->cfg_bar_bottom)
+            wl_region_add(region, 0, SURFACE_H - input_h, (int32_t)w, input_h);
         wl_surface_set_input_region(s->surface, region);
         wl_region_destroy(region);
     }
