@@ -66,6 +66,39 @@ static const struct rgba C_LAYER1_HOVER = { 185/255.0, 196/255.0, 190/255.0, 0.0
 static struct rgba C_POPUP_BG     = { 27/255.0, 33/255.0, 30/255.0, 1.0 };
 static struct rgba C_POPUP_BORDER = { 33/255.0, 42/255.0, 39/255.0, 1.0 };
 
+struct state;
+
+/*
+ * Satu view per output. Field permukaan di struct state adalah "scratch":
+ * view_load() menyalin state view ke sana sebelum menggambar / memproses
+ * pointer, lalu view_save() menyimpannya kembali. Ini menjaga kode render
+ * lama tetap single-surface tanpa duplikasi logika.
+ */
+struct bar_view {
+    struct state *s;
+    struct wl_output *output;
+    uint32_t global_name;
+    char name[64];
+    struct wl_surface *surface;
+    struct zwlr_layer_surface_v1 *layer_surface;
+    struct wl_buffer *buffer;
+    void *data;
+    int buf_w, buf_h;
+    int out_w, out_h;
+    int configured;
+    double bar_y;
+    int bar_visible;
+    int ptr_inside;
+    double ptr_x, ptr_y;
+    long long last_pointer_ms;
+    unsigned hover_mask;
+    int popup;
+    int active_ws;
+    double resources_w;
+    double media_x;
+    struct bar_view *next;
+};
+
 struct state {
     // Wayland
     struct wl_display *display;
@@ -73,6 +106,8 @@ struct state {
     struct wl_compositor *compositor;
     struct wl_shm *shm;
     struct zwlr_layer_shell_v1 *layer_shell;
+    struct bar_view *views;
+    struct bar_view *ptr_view;
     struct wl_output *output;
     struct wl_seat *seat;
     struct wl_pointer *pointer;
@@ -648,6 +683,41 @@ static void refresh_clock(struct state *s) {
     }
 }
 
+static int monitor_active_ws(const char *json, const char *name) {
+    if (!json || !json[0])
+        return 0;
+    json_object *root = json_tokener_parse(json);
+    if (!root || !json_object_is_type(root, json_type_array)) {
+        if (root)
+            json_object_put(root);
+        return 0;
+    }
+    int fallback = 0;
+    size_t n = json_object_array_length(root);
+    for (size_t i = 0; i < n; i++) {
+        json_object *mon = json_object_array_get_idx(root, i);
+        if (!mon || !json_object_is_type(mon, json_type_object))
+            continue;
+        json_object *name_obj = NULL, *aw = NULL, *id = NULL;
+        json_object_object_get_ex(mon, "name", &name_obj);
+        json_object_object_get_ex(mon, "activeWorkspace", &aw);
+        if (!aw || !json_object_object_get_ex(aw, "id", &id) ||
+            !json_object_is_type(id, json_type_int))
+            continue;
+        int ws = json_object_get_int(id);
+        if (!fallback)
+            fallback = ws;
+        if (name && name[0] && name_obj &&
+            json_object_is_type(name_obj, json_type_string) &&
+            strcmp(json_object_get_string(name_obj), name) == 0) {
+            json_object_put(root);
+            return ws;
+        }
+    }
+    json_object_put(root);
+    return fallback;
+}
+
 static void refresh_hypr(struct state *s) {
     if (!s->hypr_buf)
         return;
@@ -662,6 +732,16 @@ static void refresh_hypr(struct state *s) {
     if (hypr_json("j/activewindow", s->hypr_buf, cap)) {
         json_string(s->hypr_buf, "class", s->aw_class, sizeof s->aw_class);
         json_string(s->hypr_buf, "title", s->aw_title, sizeof s->aw_title);
+    }
+
+    // Workspace aktif berbeda per output. Ambil snapshot monitor sekali,
+    // lalu simpan ke masing-masing view.
+    if (hypr_json("j/monitors", s->hypr_buf, cap)) {
+        for (struct bar_view *v = s->views; v; v = v->next) {
+            int ws = monitor_active_ws(s->hypr_buf, v->name);
+            if (ws > 0)
+                v->active_ws = ws;
+        }
     }
 }
 
@@ -828,6 +908,61 @@ static long long mono_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void view_load(struct state *s, struct bar_view *v) {
+    s->output = v->output;
+    s->surface = v->surface;
+    s->layer_surface = v->layer_surface;
+    s->buffer = v->buffer;
+    s->data = v->data;
+    s->buf_w = v->buf_w;
+    s->buf_h = v->buf_h;
+    s->out_w = v->out_w;
+    s->out_h = v->out_h;
+    s->configured = v->configured;
+    s->bar_y = v->bar_y;
+    s->bar_visible = v->bar_visible;
+    s->ptr_inside = v->ptr_inside;
+    s->ptr_x = v->ptr_x;
+    s->ptr_y = v->ptr_y;
+    s->last_pointer_ms = v->last_pointer_ms;
+    s->hover_mask = v->hover_mask;
+    s->popup = v->popup;
+    s->active_ws = v->active_ws;
+    s->resources_w = v->resources_w;
+    s->media_x = v->media_x;
+}
+
+static void view_save(struct state *s, struct bar_view *v) {
+    v->surface = s->surface;
+    v->layer_surface = s->layer_surface;
+    v->buffer = s->buffer;
+    v->data = s->data;
+    v->buf_w = s->buf_w;
+    v->buf_h = s->buf_h;
+    v->out_w = s->out_w;
+    v->out_h = s->out_h;
+    v->configured = s->configured;
+    v->bar_y = s->bar_y;
+    v->bar_visible = s->bar_visible;
+    v->ptr_inside = s->ptr_inside;
+    v->ptr_x = s->ptr_x;
+    v->ptr_y = s->ptr_y;
+    v->last_pointer_ms = s->last_pointer_ms;
+    v->hover_mask = s->hover_mask;
+    v->popup = s->popup;
+    v->active_ws = s->active_ws;
+    v->resources_w = s->resources_w;
+    v->media_x = s->media_x;
+}
+
+static struct bar_view *view_for_surface(struct state *s, struct wl_surface *surface) {
+    for (struct bar_view *v = s->views; v; v = v->next) {
+        if (v->surface == surface)
+            return v;
+    }
+    return NULL;
 }
 
 static void apply_layer_state(struct state *s) {
@@ -2496,9 +2631,13 @@ static void draw(struct state *s) {
 
 /* ---------------- Wayland ---------------- */
 
+static void destroy_view(struct bar_view *v);
+
 static void ls_configure(void *data, struct zwlr_layer_surface_v1 *ls,
                          uint32_t serial, uint32_t w, uint32_t h) {
-    struct state *s = data;
+    struct bar_view *v = data;
+    struct state *s = v->s;
+    view_load(s, v);
     zwlr_layer_surface_v1_ack_configure(ls, serial);
     if (w == 0)
         w = s->out_w > 0 ? (uint32_t)s->out_w : 1366;
@@ -2513,18 +2652,135 @@ static void ls_configure(void *data, struct zwlr_layer_surface_v1 *ls,
     s->configured = 1;
     apply_layer_state(s);
     s->redraw = 1;
+    view_save(s, v);
 }
 
 static void ls_closed(void *data, struct zwlr_layer_surface_v1 *ls) {
-    (void)data;
     (void)ls;
-    exit(0);
+    destroy_view(data);
 }
 
 static const struct zwlr_layer_surface_v1_listener ls_listener = {
     .configure = ls_configure,
     .closed = ls_closed,
 };
+
+static int screen_allowed(struct state *s, const char *name) {
+    const char *want = getenv("DOTS_OUTPUT");
+    if (want && want[0])
+        return strcmp(want, name) == 0;
+
+    json_object *list = dots_config_get(&s->cfg, "bar.screenList");
+    if (!list || !json_object_is_type(list, json_type_array) ||
+        json_object_array_length(list) == 0)
+        return 1;
+    size_t n = json_object_array_length(list);
+    for (size_t i = 0; i < n; i++) {
+        json_object *item = json_object_array_get_idx(list, i);
+        if (item && json_object_is_type(item, json_type_string) &&
+            strcmp(json_object_get_string(item), name) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static struct bar_view *view_new(struct state *s, struct wl_output *output,
+                                 uint32_t global_name) {
+    struct bar_view *v = calloc(1, sizeof *v);
+    if (!v)
+        return NULL;
+    v->s = s;
+    v->output = output;
+    v->global_name = global_name;
+    v->bar_visible = s->cfg_auto_hide ? 0 : 1;
+    v->active_ws = s->active_ws > 0 ? s->active_ws : 1;
+    v->resources_w = 110;
+    v->media_x = 298;
+    const char *forced = getenv("CPROTO_FORCE_POPUP");
+    if (forced)
+        v->popup = atoi(forced);
+    v->next = s->views;
+    s->views = v;
+    return v;
+}
+
+static void view_create_surface(struct bar_view *v) {
+    if (v->surface)
+        return;
+    struct state *s = v->s;
+    if (!s->compositor || !s->layer_shell || !s->shm)
+        return;
+
+    v->surface = wl_compositor_create_surface(s->compositor);
+    struct wl_region *empty = wl_compositor_create_region(s->compositor);
+    if (empty) {
+        wl_surface_set_input_region(v->surface, empty);
+        wl_region_destroy(empty);
+    }
+
+    const char *namespace = getenv("DOTS_BAR_NAMESPACE");
+    if (!namespace || !namespace[0])
+        namespace = "dots:bar";
+    v->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
+        s->layer_shell, v->surface, v->output,
+        ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, namespace);
+    if (!v->layer_surface)
+        return;
+
+    zwlr_layer_surface_v1_add_listener(v->layer_surface, &ls_listener, v);
+    zwlr_layer_surface_v1_set_size(v->layer_surface, 0, SURFACE_H);
+    zwlr_layer_surface_v1_set_anchor(
+        v->layer_surface,
+        (s->cfg_bar_bottom ? ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
+                           : ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) |
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    zwlr_layer_surface_v1_set_exclusive_zone(v->layer_surface, 40);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(
+        v->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
+    v->bar_y = s->cfg_bar_bottom ? SURFACE_H - BAR_H : 0;
+    wl_surface_commit(v->surface);
+}
+
+static void view_maybe_create(struct state *s) {
+    for (struct bar_view *v = s->views; v; v = v->next) {
+        if (v->surface)
+            continue;
+        if (!v->name[0] && getenv("DOTS_OUTPUT"))
+            continue;
+        if (screen_allowed(s, v->name))
+            view_create_surface(v);
+    }
+}
+
+static void destroy_view(struct bar_view *v) {
+    if (!v)
+        return;
+    struct state *s = v->s;
+    if (s->ptr_view == v)
+        s->ptr_view = NULL;
+    if (v->layer_surface)
+        zwlr_layer_surface_v1_destroy(v->layer_surface);
+    if (v->surface)
+        wl_surface_destroy(v->surface);
+    if (v->buffer)
+        wl_buffer_destroy(v->buffer);
+    if (v->data)
+        munmap(v->data, (size_t)v->buf_w * v->buf_h * 4);
+    if (v->output) {
+        if (s->output == v->output)
+            s->output = NULL;
+        wl_output_destroy(v->output);
+    }
+
+    struct bar_view **pp = &s->views;
+    while (*pp && *pp != v)
+        pp = &(*pp)->next;
+    if (*pp == v)
+        *pp = v->next;
+    free(v);
+    s->redraw = 1;
+}
 
 static void output_geometry(void *data, struct wl_output *o, int32_t x, int32_t y,
                             int32_t pw, int32_t ph, int32_t subpixel,
@@ -2536,21 +2792,40 @@ static void output_geometry(void *data, struct wl_output *o, int32_t x, int32_t 
 static void output_mode(void *data, struct wl_output *o, uint32_t flags,
                         int32_t width, int32_t height, int32_t refresh) {
     (void)o; (void)flags; (void)refresh;
-    struct state *s = data;
-    s->out_w = width;
-    s->out_h = height;
+    struct bar_view *v = data;
+    v->out_w = width;
+    v->out_h = height;
+    view_maybe_create(v->s);
 }
 
-static void output_done(void *data, struct wl_output *o) { (void)data; (void)o; }
+static void output_name(void *data, struct wl_output *o, const char *name) {
+    (void)o;
+    struct bar_view *v = data;
+    snprintf(v->name, sizeof v->name, "%s", name ? name : "");
+    view_maybe_create(v->s);
+}
+
+static void output_done(void *data, struct wl_output *o) {
+    (void)o;
+    struct bar_view *v = data;
+    view_maybe_create(v->s);
+}
+
 static void output_scale(void *data, struct wl_output *o, int32_t factor) {
     (void)data; (void)o; (void)factor;
+}
+
+static void output_description(void *data, struct wl_output *o, const char *description) {
+    (void)data; (void)o; (void)description;
 }
 
 static const struct wl_output_listener output_listener = {
     .geometry = output_geometry,
     .mode = output_mode,
+    .name = output_name,
     .done = output_done,
     .scale = output_scale,
+    .description = output_description,
 };
 
 /* ---------------- Pointer input ---------------- */
@@ -2559,34 +2834,56 @@ static void ptr_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
                       struct wl_surface *surface, wl_fixed_t sx, wl_fixed_t sy) {
     (void)pointer; (void)serial;
     struct state *s = data;
-    if (surface != s->surface)
+    struct bar_view *v = view_for_surface(s, surface);
+    if (!v)
         return;
+    if (s->ptr_view && s->ptr_view != v) {
+        struct bar_view *old = s->ptr_view;
+        view_load(s, old);
+        s->ptr_inside = 0;
+        s->last_pointer_ms = mono_ms();
+        update_hover(s);
+        view_save(s, old);
+    }
+    s->ptr_view = v;
+    view_load(s, v);
     s->ptr_inside = 1;
     s->ptr_x = wl_fixed_to_double(sx);
     s->ptr_y = wl_fixed_to_double(sy);
     show_bar(s);
     update_hover(s);
+    view_save(s, v);
 }
 
 static void ptr_leave(void *data, struct wl_pointer *pointer, uint32_t serial,
                       struct wl_surface *surface) {
     (void)pointer; (void)serial;
     struct state *s = data;
-    if (surface != s->surface)
+    struct bar_view *v = view_for_surface(s, surface);
+    if (!v)
         return;
+    view_load(s, v);
     s->ptr_inside = 0;
     s->last_pointer_ms = mono_ms();
     update_hover(s);
+    view_save(s, v);
+    if (s->ptr_view == v)
+        s->ptr_view = NULL;
 }
 
 static void ptr_motion(void *data, struct wl_pointer *pointer, uint32_t time,
                        wl_fixed_t sx, wl_fixed_t sy) {
     (void)pointer; (void)time;
     struct state *s = data;
+    struct bar_view *v = s->ptr_view;
+    if (!v)
+        return;
+    view_load(s, v);
     s->ptr_x = wl_fixed_to_double(sx);
     s->ptr_y = wl_fixed_to_double(sy);
     show_bar(s);
     update_hover(s);
+    view_save(s, v);
 }
 
 static void ptr_button(void *data, struct wl_pointer *pointer, uint32_t serial,
@@ -2595,18 +2892,26 @@ static void ptr_button(void *data, struct wl_pointer *pointer, uint32_t serial,
     struct state *s = data;
     if (state != WL_POINTER_BUTTON_STATE_PRESSED)
         return;
+    struct bar_view *v = s->ptr_view;
+    if (!v)
+        return;
+    view_load(s, v);
     s->ptr_inside = 1;
     s->last_pointer_ms = mono_ms();
     handle_click(s, button, s->ptr_x, s->ptr_y - s->bar_y);
+    view_save(s, v);
 }
 
 static void ptr_axis(void *data, struct wl_pointer *pointer, uint32_t time,
                      uint32_t axis, wl_fixed_t value) {
     (void)pointer; (void)time;
     struct state *s = data;
-    if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL)
+    struct bar_view *v = s->ptr_view;
+    if (!v || axis != WL_POINTER_AXIS_VERTICAL_SCROLL)
         return;
+    view_load(s, v);
     handle_scroll(s, s->ptr_x, s->ptr_y - s->bar_y, wl_fixed_to_double(value));
+    view_save(s, v);
 }
 
 static const struct wl_pointer_listener pointer_listener = {
@@ -2625,8 +2930,13 @@ static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t caps) {
     } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && s->pointer) {
         wl_pointer_release(s->pointer);
         s->pointer = NULL;
-        s->ptr_inside = 0;
-        update_hover(s);
+        s->ptr_view = NULL;
+        for (struct bar_view *v = s->views; v; v = v->next) {
+            v->ptr_inside = 0;
+            v->popup = 0;
+            v->hover_mask = 0;
+        }
+        s->redraw = 1;
     }
 }
 
@@ -2650,18 +2960,31 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
     } else if (strcmp(iface, zwlr_layer_shell_v1_interface.name) == 0) {
         s->layer_shell = wl_registry_bind(reg, name, &zwlr_layer_shell_v1_interface,
                                           version < 4 ? version : 4);
-    } else if (strcmp(iface, wl_output_interface.name) == 0 && !s->output) {
-        s->output = wl_registry_bind(reg, name, &wl_output_interface,
-                                     version < 1 ? version : 1);
-        wl_output_add_listener(s->output, &output_listener, s);
+    } else if (strcmp(iface, wl_output_interface.name) == 0) {
+        struct wl_output *output = wl_registry_bind(
+            reg, name, &wl_output_interface, version < 4 ? version : 4);
+        struct bar_view *v = view_new(s, output, name);
+        if (v) {
+            if (!s->output)
+                s->output = output;
+            wl_output_add_listener(output, &output_listener, v);
+        }
     } else if (strcmp(iface, wl_seat_interface.name) == 0 && !s->seat) {
         s->seat = wl_registry_bind(reg, name, &wl_seat_interface, 1);
         wl_seat_add_listener(s->seat, &seat_listener, s);
     }
+    view_maybe_create(s);
 }
 
 static void registry_global_remove(void *data, struct wl_registry *reg, uint32_t name) {
-    (void)data; (void)reg; (void)name;
+    (void)reg;
+    struct state *s = data;
+    for (struct bar_view *v = s->views; v; v = v->next) {
+        if (v->global_name == name) {
+            destroy_view(v);
+            return;
+        }
+    }
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -2726,33 +3049,7 @@ int main(void) {
         return 1;
     }
 
-    s.surface = wl_compositor_create_surface(s.compositor);
-    struct wl_region *empty = wl_compositor_create_region(s.compositor);
-    wl_surface_set_input_region(s.surface, empty);
-    wl_region_destroy(empty);
-
-    // Overlay layer so the bar covers the real bar while testing. The
-    // namespace is configurable so the prototype and the new native bar can
-    // coexist during migration without sharing Hyprland layer rules.
-    const char *namespace = getenv("DOTS_BAR_NAMESPACE");
-    if (!namespace || !namespace[0])
-        namespace = "dots:bar";
-    s.layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        s.layer_shell, s.surface, s.output,
-        ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, namespace);
-
-    zwlr_layer_surface_v1_add_listener(s.layer_surface, &ls_listener, &s);
-    zwlr_layer_surface_v1_set_size(s.layer_surface, 0, SURFACE_H);
-    zwlr_layer_surface_v1_set_anchor(
-        s.layer_surface,
-        (s.cfg_bar_bottom ? ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
-                          : ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) |
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    zwlr_layer_surface_v1_set_exclusive_zone(s.layer_surface, 40);
-    zwlr_layer_surface_v1_set_keyboard_interactivity(
-        s.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
-    wl_surface_commit(s.surface);
+    view_maybe_create(&s);
 
     wl_display_roundtrip(s.display);
 
@@ -2799,14 +3096,29 @@ int main(void) {
             read_cpu(&s);
             s.redraw = 1;
         }
-        if (s.cfg_auto_hide && s.bar_visible && !s.ptr_inside &&
-            !s.popup && !forced_popup &&
-            mono_ms() - s.last_pointer_ms > 300)
-            hide_bar(&s);
 
-        if (s.redraw && s.configured) {
+        // Auto-hide is per-output. The pointer can only be in one bar at a
+        // time, so each view tracks its own timeout.
+        for (struct bar_view *v = s.views; v; v = v->next) {
+            if (!v->configured)
+                continue;
+            view_load(&s, v);
+            if (s.cfg_auto_hide && s.bar_visible && !s.ptr_inside &&
+                !s.popup && !forced_popup &&
+                mono_ms() - s.last_pointer_ms > 300)
+                hide_bar(&s);
+            view_save(&s, v);
+        }
+
+        if (s.redraw) {
             s.redraw = 0;
-            draw(&s);
+            for (struct bar_view *v = s.views; v; v = v->next) {
+                if (!v->configured)
+                    continue;
+                view_load(&s, v);
+                draw(&s);
+                view_save(&s, v);
+            }
         }
     }
 

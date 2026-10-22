@@ -2,13 +2,14 @@
 
 Implementasi native C untuk menggantikan Quickshell/QML secara bertahap.
 
-Status: **Fase 1 — bar native sudah bisa dijalankan, belum menjadi default.**
+Status: **Fase 1 — bar native multi-output sudah bisa dijalankan, belum menjadi default.**
 
 ## Yang sudah ada
 
 - `dots-bar`: bar Wayland C + cairo/pango, hasil port dari `docs/cbar`.
-  Layout tengah dihitung dari lebar output, mendukung auto-hide, bar bawah,
-  dan warna Material You dari `generated/colors.json`.
+  Satu proses membuat satu layer surface per output, layout dihitung dari
+  lebar masing-masing output, mendukung `screenList`, hotplug, auto-hide,
+  bar bawah, dan warna Material You dari `generated/colors.json`.
 - `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
 - `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
 - `dots-dispatch`: dispatcher aksi dengan fallback `qs`, untuk migrasi keybind.
@@ -48,6 +49,20 @@ Skrip akan:
 Jangan jadikan ini default harian sampai gate G1 lulus. Quickshell masih
 menangani sidebar, overview, notifikasi, OSD, dan panel lain.
 
+## Uji multi-output
+
+Semua output aktif otomatis mendapat bar. Untuk menguji hotplug tanpa monitor
+fisik kedua:
+
+```sh
+hyprctl output create headless
+hyprctl layers -j | jq   # cari namespace dots:bar
+hyprctl output remove HEADLESS-1
+```
+
+`bar.screenList` di config membatasi output yang diberi bar. Variabel
+`DOTS_OUTPUT` hanya untuk debugging satu output pada proses terpisah.
+
 ## Supervisor hybrid
 
 ```sh
@@ -57,11 +72,12 @@ menangani sidebar, overview, notifikasi, OSD, dan panel lain.
 ./native/build/dots-session backend hybrid
 ```
 
-`start` menyalakan `dotsd`, menutup bar Quickshell, lalu menjalankan
-`dots-bar`. Saat proses berhenti atau `stop` dipanggil, bar Quickshell dibuka
-kembali. Backend disimpan di `$XDG_STATE_HOME/dots/backend` (default
-`hybrid`). Pilihan `quickshell` hanya membuka kembali bar Quickshell; `native`
-belum diaktifkan karena panel native belum ada.
+`start` menyalakan `dotsd`, menutup bar Quickshell, lalu menjalankan satu
+`dots-bar` yang menangani semua output aktif. Saat proses berhenti atau `stop`
+dipanggil, bar Quickshell dibuka kembali. Backend disimpan di
+`$XDG_STATE_HOME/dots/backend` (default `hybrid`). Pilihan `quickshell` hanya
+membuka kembali bar Quickshell; `native` belum diaktifkan karena panel native
+belum ada.
 
 ## Daemon dan CLI
 
@@ -80,8 +96,7 @@ langsung sehingga fitur harian tidak mati.
 
 ## Batasan saat ini
 
-- Layout horizontal sudah dihitung dari lebar output, tetapi belum ada bentuk
-  shortened, vertical, atau multi-output.
+- Belum ada bentuk shortened atau vertical.
 - Interaksi sidebar/media masih didelegasikan ke Quickshell lewat `dotsd`.
 - `dots-session` masih supervisor tipis; belum ada health-check otomatis,
   restart, atau watchdog proses.
@@ -108,7 +123,7 @@ native/
 
 ## Ukuran
 
-Bar native yang diuji pada 1366×768:
+Bar native satu output 1366×768:
 
 | Metrik | Nilai |
 | --- | ---: |
@@ -117,7 +132,9 @@ Bar native yang diuji pada 1366×768:
 | Anonymous | 6,7 MB |
 | Private dirty | 6,8 MB |
 
-`dotsd` (idle, config sudah dimuat): PSS sekitar 0,4 MB.
+Dengan dua output (1366×768 + headless 1920×1080) PSS naik ke sekitar
+12,9 MB karena ada buffer kedua. `dotsd` (idle, config sudah dimuat): PSS
+sekitar 0,4 MB.
 
 Angka ini hanya bar, bukan pengganti total shell. Target dan urutan lengkap
 ada di `/home/uznbt/.opencode/plan/rombak-dots-ke-c.md`.

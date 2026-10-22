@@ -45,7 +45,9 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Bar bottom | ya | |
 | Shortened form | belum | |
 | Tray | belum | |
-| Multi-monitor | belum | |
+| Multi-monitor | ya | satu proses, surface per output |
+| `screenList` | ya | filter output dari config |
+| Hotplug output | ya | uji create/remove headless output |
 | Shortened/vertical | belum | |
 | Supervisor hybrid | ya | `dots-session start/stop` |
 | Backend switch | sebagian | `hybrid`/`quickshell`; `native` ditolak sampai panel native ada |
@@ -56,18 +58,18 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | --- | ---: |
 | Quickshell baseline | 344–355 MB |
 | Quickshell + bar | 139 MB |
-| `dots-bar` | 11,0 MB |
+| `dots-bar` 1 output | 11,0 MB |
+| `dots-bar` 2 output (1366 + 1920) | 12,9 MB |
 | `dotsd` idle | 0,4 MB |
 
 ## Gate berikutnya
 
 G1 belum lulus karena:
 
-- belum multi-monitor;
 - belum shortened/vertical;
 - interaksi panel masih Quickshell;
 - popup belum interaktif penuh;
 - belum diuji 3 hari sebagai bar default.
 
-Langkah berikutnya: multi-output + surface per monitor, lalu port panel inti
+Langkah berikutnya: shortened/vertical + corner style, lalu port panel inti
 ke Wayland native; setelah itu baru `dots-session backend native` boleh dibuka.
