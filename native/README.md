@@ -2,8 +2,8 @@
 
 Implementasi native C untuk menggantikan Quickshell/QML secara bertahap.
 
-Status: **Fase 1 — bar native multi-output dan OSD volume/brightness sudah
-bisa dijalankan, belum menjadi default.**
+Status: **Fase 3 — bar native multi-output, OSD volume/brightness, dan
+notification server/popup sudah bisa dijalankan, belum menjadi default.**
 
 ## Yang sudah ada
 
@@ -21,7 +21,11 @@ bisa dijalankan, belum menjadi default.**
 - `dots-osd`: overlay OSD volume/brightness native. Proses hanya hidup selama
   overlay tampil; invocation berikutnya mengirim command lewat Unix datagram
   socket ke instance aktif. Ada fade in/out dan timeout dari `osd.timeout`.
-- Build Meson + smoke test IPC/OSD.
+- `dots-notify`: server D-Bus `org.freedesktop.Notifications` dan popup native
+  dalam satu proses. Mendukung replace ID, actions, timeout, urgency, hover
+  pause, expand/collapse, close, dan warna Material You. Server bersifat opt-in
+  dan tidak boleh berjalan bersamaan dengan notification server Quickshell.
+- Build Meson + smoke test IPC/OSD/notifikasi.
 - Skrip uji `scripts/run-bar.sh` yang menyalakan daemon, menutup bar Quickshell
   sementara, dan mengembalikan semuanya saat keluar.
 - Aset bar (ikon aplikasi dan spark) di `assets/`.
@@ -40,11 +44,14 @@ Dependensi saat ini:
 - `cairo`
 - `pangocairo`
 - `json-c`
+- `glib-2.0`
+- `gio-2.0`
 - `pkg-config`, `meson`, `ninja`, compiler C
 
 Runtime untuk OSD: `wpctl` (PipeWire), `brightnessctl`, dan opsional
-`hyprctl` untuk memilih monitor fokus. `qs` hanya dipakai sebagai bridge
-transisi dan fallback.
+`hyprctl` untuk memilih monitor fokus. `dots-notify` memerlukan session bus
+D-Bus dan (untuk tes) `dbus-daemon`, `gdbus`, `dbus-monitor`, `notify-send`.
+`qs` hanya dipakai sebagai bridge transisi dan fallback.
 
 ## Jalankan untuk uji coba
 
@@ -96,6 +103,40 @@ keybind tetap berfungsi saat binary native belum ada di `PATH`. Selama OSD
 native tampil, `dots-osd` menonaktifkan sementara OSD Quickshell lewat
 `osdVolume nativeOn/nativeOff`; timer pengaman di Quickshell mengaktifkannya
 kembali kalau proses native mati mendadak.
+
+## Notifikasi native
+
+`dots-notify` menggabungkan server D-Bus dan popup. Server **tidak** dinyalakan
+oleh `dots-session` selama Quickshell masih menjadi notification server. Untuk
+tes aman, jalankan session bus privat:
+
+```sh
+TMP=$(mktemp -d)
+ADDR="unix:path=$TMP/bus"
+dbus-daemon --session --address="$ADDR" --nofork --nopidfile &
+DBUS_SESSION_BUS_ADDRESS="$ADDR" ./native/build/dots-notify serve &
+DBUS_SESSION_BUS_ADDRESS="$ADDR" notify-send -t 0 "Judul" "Isi notifikasi"
+```
+
+Popup muncul di kanan atas monitor fokus. Saat notifikasi baru datang,
+`dots-notify` memilih ulang monitor fokus dan memindahkan popup bila perlu.
+Klik kanan kartu untuk expand, klik tengah untuk dismiss, dan tombol
+`Close`/aksi untuk menutup atau menjalankan action. `notifications.timeout`
+dipakai bila pengirim meminta timeout `-1`; nilai `0` berarti notifikasi tidak
+kedaluwarsa. `DOTS_OUTPUT` memaksa output tertentu untuk tes multi-monitor.
+
+Server hanya untuk satu pemilik nama D-Bus. Jangan menjalankan `dots-notify`
+saat Quickshell masih memegang `org.freedesktop.Notifications`. Untuk tes
+D-Bus tanpa Wayland:
+
+```sh
+./native/build/dots-notify serve --no-ui
+meson test -C native/build notify-smoke --print-errorlogs
+```
+
+Belum ada history persisten, DND, grouping per aplikasi, body image/markup,
+atau animasi fade. Ikon aplikasi hanya dibaca dari PNG (path langsung atau
+nama di direktori hicolor); SVG belum didukung.
 
 ## Uji multi-output
 
@@ -152,6 +193,9 @@ langsung sehingga fitur harian tidak mati.
   rotasi/scale ikon brightness, dan lokalisasi label belum ada.
 - `dots-osd` memilih monitor fokus saat OSD mulai; belum mengikuti perpindahan
   fokus selama overlay masih tampil.
+- `dots-notify` belum punya history persisten, DND, grouping per aplikasi,
+  image body, ikon SVG, atau fade. Server belum dijalankan otomatis dan belum
+  diintegrasikan ke `dots-session`.
 - `dots-session` masih supervisor tipis; belum ada health-check otomatis,
   restart, atau watchdog proses.
 - Belum ada tray, popup interaktif penuh, dan animasi auto-hide.
@@ -174,8 +218,10 @@ native/
   src/session/
   src/ui/bar.c
   src/ui/osd.c
+  src/ui/notify.c
   tests/test-ipc.sh
   tests/test-osd.sh
+  tests/test-notify.sh
 ```
 
 ## Ukuran
@@ -204,5 +250,18 @@ OSD diukur saat kartu volume tampil (1366×768):
 
 Saat OSD tidak tampil, tidak ada proses `dots-osd`; invocation berikutnya
 membuka proses baru dan mengirim command ke socket bila sudah ada instance.
-Angka ini bukan pengganti total shell. Target dan urutan lengkap ada di
-`/home/uznbt/.opencode/plan/rombak-dots-ke-c.md`.
+
+Notifikasi (`dots-notify`, server + popup, 1366×768):
+
+| Metrik | Nilai |
+| --- | ---: |
+| PSS baru start | 0,6 MB |
+| PSS idle setelah popup pernah tampil | 9,9 MB |
+| RSS idle setelah popup | 37,0 MB |
+| Anonymous idle setelah popup | 4,9 MB |
+| PSS dengan 3 kartu terlihat | 10,1 MB |
+
+Server tetap hidup untuk menerima D-Bus sehingga PSS idle tidak kembali ke
+0. Sebagian besar kenaikan berasal dari pustaka Cairo/Pango dan state font
+yang sudah disentuh. Angka ini bukan pengganti total shell. Target dan urutan
+lengkap ada di `/home/uznbt/.opencode/plan/rombak-dots-ke-c.md`.

@@ -44,9 +44,28 @@ Terakhir diperbarui: **23 Oktober 2026**
 - Bridge transisi: `dots-osd` memanggil `qs -c ii ipc call osdVolume
   nativeOn/nativeOff` supaya OSD Quickshell tidak tampil ganda. Timer pengaman
   di Quickshell mengaktifkan kembali OSD QML kalau proses native mati.
-- Smoke test IPC dan OSD lulus.
+- `dots-notify`: server D-Bus `org.freedesktop.Notifications` + popup native
+  dalam satu proses. Method `Notify`, `CloseNotification`, `GetCapabilities`,
+  `GetServerInformation`; signal `NotificationClosed` dan `ActionInvoked`.
+  Mendukung replace ID, timeout per-notifikasi, hint urgency/transient,
+  actions, dan app icon PNG bila tersedia.
+- Popup notification: layer overlay di kanan atas, lebar 410 px, maksimal 5
+  kartu, warna dari `generated/colors.json`, kartu critical memakai
+  `secondary_container`. Timeout pause saat hover, collapse/expand lewat klik
+  kanan atau tombol chevron, klik tengah atau tombol close untuk dismiss.
+  Monitor fokus dibaca dari `hyprctl monitors -j`; popup pindah output saat
+  notifikasi baru datang. `DOTS_OUTPUT` dan `notifications.monitor` dapat
+  memaksa output tertentu.
+- Server notifikasi **belum** dinyalakan otomatis dan tidak boleh berjalan
+  bersama notification server Quickshell. Pengujian memakai session bus
+  privat; integrasi ke `dots-session backend native` menyusul setelah panel
+  inti lain siap.
+- Smoke test IPC, OSD, dan notification server lulus (`3/3`).
 - PSS bar 1 output: ~11,3 MB; 2 output: ~12,5 MB. `dotsd` idle: ~0,4 MB.
   `dots-osd` saat tampil: PSS ~9,3 MB, RSS ~35,9 MB; idle: 0 proses.
+  `dots-notify` setelah popup pernah tampil: PSS ~9,9 MB, RSS ~37,0 MB,
+  anon ~4,9 MB; dengan tiga kartu terlihat: PSS ~10,1 MB. Server yang baru
+  start sebelum popup pertama: PSS ~0,6 MB.
 
 ## Sedang dikerjakan / berikutnya
 
@@ -54,17 +73,24 @@ Bar horizontal/vertical dan corner style sudah selesai dan diuji visual pada
 1366×768 (horizontal/vertical, kiri/kanan, hug/float) serta headless 1920×1080
 untuk multi-output. OSD volume/brightness native sudah menjadi panel inti
 pertama dan teruji visual di atas/bawah bar serta pada output headless.
+Notifikasi diuji visual pada eDP-1 dan headless 1920×1080, termasuk perpindahan
+popup saat fokus pindah monitor.
 
-Berikutnya sesuai urutan Fase 3: notification server/popup native, media
-controls, dock, session/power menu, display panel, wallpaper, lalu lock. Jangan
-ambil alih `org.freedesktop.Notifications` sebelum popup native siap.
+Notification server/popup native sudah menjadi panel inti kedua. Berikutnya
+sesuai urutan Fase 3: media controls, dock, session/power menu, display panel,
+wallpaper, lalu lock. `org.freedesktop.Notifications` baru boleh diambil alih
+saat backend native dijalankan dan Quickshell tidak lagi menjadi server.
 
 ## Belum ada
 
 - Tray StatusNotifierItem.
 - Popup interaktif penuh dan animasi auto-hide.
-- Notification server/popup, media controls, dock, session/power, display
-  panel, wallpaper, dan lock native.
+- Notification history persisten, DND, grouping per aplikasi, image body,
+  ikon SVG/aplikasi penuh, dan animasi fade popup.
+- Integrasi `dots-notify` ke `dots-session`/backend native; saat ini hanya
+  dijalankan manual dengan session bus privat.
+- Media controls, dock, session/power, display panel, wallpaper, dan lock
+  native.
 - Sidebar/overview native; masih Quickshell.
 - OSD baru mendukung volume/brightness internal (`wpctl`/`brightnessctl`);
   ddcutil, rotasi/scale ikon, dan lokalisasi label belum.

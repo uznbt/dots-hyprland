@@ -19,7 +19,7 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | 0. Baseline/kontrak | selesai | branch, tag, backup, matrix awal |
 | 1. Fondasi + bar | berjalan | `dots-bar`, `dotsd`, `dots-ctl`, `dots-dispatch`, `dots-session` |
 | 2. Daemon/services | belum | fondasi IPC sudah ada, layanan sistem menyusul |
-| 3. Panel inti + daily | berjalan | OSD volume/brightness native; notifikasi/media/dock menyusul |
+| 3. Panel inti + daily | berjalan | OSD dan notification server/popup native; media/dock menyusul |
 | 4. Sidebar/overview | belum | |
 | 5. Settings/utilitas | belum | |
 | 6. Decommission | belum | |
@@ -73,6 +73,30 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Lokalisasi label | belum | label Inggris |
 | Warna Material You penuh | sebagian | memakai konstanta layer/primary yang sama dengan bar |
 
+## Notifikasi
+
+| Fitur | Native | Catatan |
+| --- | --- | --- |
+| Server `org.freedesktop.Notifications` | ya | `dots-notify serve`; opt-in, tidak autostart |
+| `Notify` + replace ID | ya | ID dipertahankan saat `replaces_id` cocok |
+| `CloseNotification` | ya | signal reason 3 |
+| `GetCapabilities` / `GetServerInformation` | ya | spec version 1.2 |
+| Actions | ya | `ActionInvoked`, lalu close reason 2 |
+| Timeout | ya | `notifications.timeout` (default 7000 ms); `-1` memakai config, `0` permanen |
+| Urgency / transient | ya | hint dibaca; urgency critical mengubah warna kartu |
+| Popup layer | ya | kanan atas, lebar 410 px, maksimal 5 kartu |
+| Monitor fokus | ya | `hyprctl monitors -j`; `DOTS_OUTPUT`/`notifications.monitor`; pindah output saat notifikasi baru |
+| Pause saat hover | ya | sisa timeout disimpan lalu dilanjutkan saat pointer keluar |
+| Expand/collapse | ya | klik kanan atau tombol chevron |
+| Dismiss | ya | klik tengah, tombol close, `CloseNotification`, timeout |
+| App icon PNG | sebagian | path PNG dan nama ikon di direktori hicolor; SVG belum |
+| Gambar body / markup | belum | body diubah ke teks polos |
+| Grouping per aplikasi | belum | kartu terpisah per notifikasi |
+| History persisten / DND / unread | belum | store masih di memori proses |
+| Fade/animasi | belum | popup langsung tampil |
+| Integrasi Quickshell bridge | belum | jangan jalankan bersamaan dengan QS |
+| Integrasi `dots-session` | belum | menunggu backend native |
+
 ## Angka
 
 | Komponen | PSS |
@@ -83,6 +107,9 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | `dots-bar` 2 output (1366 + 1920) | 12,5 MB |
 | `dots-osd` saat tampil | 9,3 MB (RSS 35,9 MB, anon 4,6 MB) |
 | `dots-osd` idle | 0 MB (proses keluar) |
+| `dots-notify` baru start | 0,6 MB |
+| `dots-notify` idle setelah popup | 9,9 MB (RSS 37,0 MB, anon 4,9 MB) |
+| `dots-notify` 3 kartu terlihat | 10,1 MB (RSS 37,4 MB, anon 4,9 MB) |
 | `dotsd` idle | 0,4 MB |
 
 ## Gate berikutnya
@@ -96,9 +123,11 @@ G1 belum lulus karena:
 Vertical bar dan corner style sudah selesai (hug/float/plain, kiri/kanan,
 termasuk popup di samping bar). OSD volume/brightness native juga sudah
 berjalan, termasuk bridge supaya OSD Quickshell tidak tampil ganda saat keybind
-memakai `dots-dispatch` atau saat `dots-osd` dipanggil langsung.
+memakai `dots-dispatch` atau saat `dots-osd` dipanggil langsung. Notification
+server/popup native sudah lulus tes D-Bus dan visual dengan session bus privat;
+server belum dijalankan otomatis.
 
-Langkah berikutnya: notification server/popup native (jangan ambil alih
-`org.freedesktop.Notifications` sebelum popup siap), lalu media controls, dock,
-session/power menu, display panel, wallpaper, dan lock. Setelah panel inti itu
-ada, baru `dots-session backend native` boleh dibuka.
+Langkah berikutnya: media controls, dock, session/power menu, display panel,
+wallpaper, dan lock. Setelah panel inti itu ada, baru `dots-session backend
+native` boleh dibuka dan `dots-notify` dijalankan sebagai pengganti server
+Quickshell. Jangan menyalakan keduanya bersamaan.

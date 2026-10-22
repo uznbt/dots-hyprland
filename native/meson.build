@@ -18,6 +18,8 @@ wayland_client = dependency('wayland-client')
 cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')
 json_c = dependency('json-c')
+gio = dependency('gio-2.0')
+glib = dependency('glib-2.0')
 math = cc.find_library('m', required: false)
 
 src_incs = include_directories('src')
@@ -81,6 +83,25 @@ dots_osd = executable(
   include_directories: incs,
   link_with: dots_common,
   dependencies: [wayland_client, cairo, pangocairo, json_c, math],
+  install: true,
+)
+
+# ---------------------------------------------------------------------------
+# dots-notify
+#
+# Server org.freedesktop.Notifications + popup layer surface. Ini masih
+# transisi: server tidak dinyalakan otomatis oleh dots-session. Quickshell
+# tetap notification server fallback sampai backend native diaktifkan.
+# ---------------------------------------------------------------------------
+dots_notify = executable(
+  'dots-notify',
+  [
+    'src/ui/notify.c',
+    protocol_sources,
+  ],
+  include_directories: incs,
+  link_with: dots_common,
+  dependencies: [wayland_client, cairo, pangocairo, json_c, gio, glib, math],
   install: true,
 )
 
@@ -158,9 +179,18 @@ test(
   timeout: 10,
 )
 
+test(
+  'notify-smoke',
+  find_program('tests/test-notify.sh'),
+  env: ['BUILD_DIR=' + meson.current_build_dir()],
+  timeout: 20,
+)
+
 summary({
   'wayland-client': wayland_client.version(),
   'cairo': cairo.version(),
   'pangocairo': pangocairo.version(),
   'json-c': json_c.version(),
+  'glib': glib.version(),
+  'gio': gio.version(),
 }, section: 'dependencies')
