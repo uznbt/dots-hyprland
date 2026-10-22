@@ -75,7 +75,9 @@ Singleton {
 
     property bool silent: false
     property int unread: 0
+    readonly property bool showUnreadCount: Config.options.bar.indicators.notifications.showUnreadCount
     property var filePath: Directories.notificationsPath
+    property string notifStatePath: Directories.notificationsPath.replace("notifications.json", "state.json")
     property list<Notif> list: []
     property var popupList: list.filter((notif) => notif.popup);
     property bool popupInhibited: (GlobalStates?.sidebarRightOpen ?? false) || silent
@@ -189,6 +191,16 @@ Singleton {
         root.unread = 0;
     }
 
+    // Mirror transient notification state for the standalone C bar prototype
+    // (docs/cbar). Quickshell has no built-in IPC for these properties.
+    function syncNotifState() {
+        notifStateFile.setText(`${root.unread}\n${root.silent ? 1 : 0}\n${root.showUnreadCount ? 1 : 0}\n`);
+    }
+
+    onUnreadChanged: syncNotifState()
+    onSilentChanged: syncNotifState()
+    onShowUnreadCountChanged: syncNotifState()
+
     function discardNotification(id) {
         console.log("[Notifications] Discarding notification with ID: " + id);
         const index = root.list.findIndex((notif) => notif.notificationId === id);
@@ -262,6 +274,7 @@ Singleton {
 
     Component.onCompleted: {
         refresh()
+        syncNotifState()
     }
 
     FileView {
@@ -300,6 +313,25 @@ Singleton {
             } else {
                 console.log("[Notifications] Error loading file: " + error)
             }
+        }
+    }
+
+    FileView {
+        id: notifStateFile
+        path: Qt.resolvedUrl(root.notifStatePath)
+    }
+
+    IpcHandler {
+        target: "notifications"
+
+        function getState(): string {
+            return `${root.unread} ${root.silent ? 1 : 0} ${root.showUnreadCount ? 1 : 0}`;
+        }
+        function setSilent(value: bool): void {
+            root.silent = value;
+        }
+        function markAllRead(): void {
+            root.markAllRead();
         }
     }
 }

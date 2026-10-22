@@ -29,7 +29,7 @@
 
 #include "wlr-layer-shell-client.h"
 
-#define SURFACE_H 200
+#define SURFACE_H 320
 #define BAR_H 40
 #define NWS 10
 #define WS_W 26.0
@@ -46,6 +46,7 @@ static const struct rgba C_PRIMARY      = { 135/255.0, 214/255.0, 189/255.0, 1.0
 static const struct rgba C_ON_PRIMARY   = { 0/255.0, 56/255.0, 44/255.0, 1.0 };
 static const struct rgba C_ON_SECONDARY = { 205/255.0, 233/255.0, 222/255.0, 1.0 };
 static const struct rgba C_ON_LAYER0    = { 222/255.0, 228/255.0, 224/255.0, 1.0 };
+static const struct rgba C_LAYER0_SOLID = { 18/255.0, 23/255.0, 20/255.0, 1.0 };
 static const struct rgba C_ON_LAYER1    = { 191/255.0, 201/255.0, 196/255.0, 1.0 };
 static const struct rgba C_SUBTEXT      = { 137/255.0, 147/255.0, 142/255.0, 1.0 };
 static const struct rgba C_DOT          = { 133/255.0, 136/255.0, 138/255.0, 0.505 };
@@ -84,6 +85,17 @@ struct state {
     int popup;                // 0 none, 1 clock, 2 resources, 3 battery
     int bell_visible;         // notification indicator shown
     time_t notif_mtime;       // baseline mtime of notification history
+    int notif_state_valid;    // Quickshell state bridge readable
+    int notif_unread;
+    int notif_silent;
+    int notif_show_count;
+
+    // To-do list (from Quickshell's todo.json)
+    char todo_text[4096];
+    int todo_lines;
+    int todo_unfinished;
+    time_t todo_mtime;
+    off_t todo_size;
 
     // Data
     int active_ws;
@@ -541,12 +553,22 @@ static void refresh_clock(struct state *s) {
     if (f) {
         double up = 0;
         if (fscanf(f, "%lf", &up) == 1) {
-            int mins = (int)(up / 60.0);
-            if (mins >= 60)
-                snprintf(s->uptime_str, sizeof s->uptime_str, "%dh, %dm",
-                         mins / 60, mins % 60);
-            else
-                snprintf(s->uptime_str, sizeof s->uptime_str, "%dm", mins);
+            int total = (int)(up / 60.0);
+            int days = total / (24 * 60);
+            int hours = (total / 60) % 24;
+            int mins = total % 60;
+            size_t off = 0;
+            s->uptime_str[0] = 0;
+            if (days > 0)
+                off += (size_t)snprintf(s->uptime_str + off,
+                                        sizeof s->uptime_str - off, "%dd", days);
+            if (hours > 0)
+                off += (size_t)snprintf(s->uptime_str + off,
+                                        sizeof s->uptime_str - off, "%s%dh",
+                                        off ? ", " : "", hours);
+            if (mins > 0 || off == 0)
+                snprintf(s->uptime_str + off, sizeof s->uptime_str - off,
+                         "%s%dm", off ? ", " : "", mins);
         }
         fclose(f);
     }
@@ -570,8 +592,12 @@ static void refresh_hypr(struct state *s) {
 }
 
 static time_t notif_mtime_now(void);
+static void read_notif_state(struct state *s);
+static void load_todos(struct state *s);
 
 static void refresh_sidebars(struct state *s) {
+    read_notif_state(s);
+    load_todos(s);
     if (!s->hypr_buf)
         return;
     if (!hypr_json("j/layers", s->hypr_buf, 1024 * 512))
@@ -584,23 +610,37 @@ static void refresh_sidebars(struct state *s) {
         s->redraw = 1;
     }
 
-    // Notification bell: the real bar reveals it when a new notification
-    // arrives and hides it again when the right sidebar marks everything read.
-    // Quickshell keeps the unread counter in memory and does not expose it,
-    // so use the notification history file's mtime as the trigger.
-    time_t mt = notif_mtime_now();
-    if (s->rb_open) {
-        if (s->bell_visible) {
-            s->bell_visible = 0;
+    // Notification bell. Prefer the explicit state bridge written by
+    // Notifications.qml (unread count, silent/DND, showUnreadCount). Fall
+    // back to the history file mtime for setups without the bridge.
+    if (s->notif_state_valid) {
+        int vis = s->notif_silent || s->notif_unread > 0;
+        // Opening the right sidebar marks everything read; silent still shows
+        // the paused bell, exactly like Notifications.silent || unread > 0.
+        if (s->rb_open && !s->notif_silent)
+            vis = 0;
+        if (vis != s->bell_visible) {
+            s->bell_visible = vis;
             s->redraw = 1;
         }
-        s->notif_mtime = mt;
-    } else if (s->notif_mtime == 0) {
-        s->notif_mtime = mt;
-    } else if (mt != s->notif_mtime) {
-        s->notif_mtime = mt;
-        s->bell_visible = 1;
-        s->redraw = 1;
+        s->notif_mtime = notif_mtime_now();
+    } else {
+        time_t mt = notif_mtime_now();
+        if (s->rb_open) {
+            if (s->bell_visible) {
+                s->bell_visible = 0;
+                s->redraw = 1;
+            }
+            s->notif_mtime = mt;
+        } else if (s->notif_mtime == 0) {
+            s->notif_mtime = mt;
+        } else if (mt != s->notif_mtime) {
+            s->notif_mtime = mt;
+            s->bell_visible = 1;
+            s->notif_unread = 1;
+            s->notif_silent = 0;
+            s->redraw = 1;
+        }
     }
 }
 
@@ -630,7 +670,10 @@ static void toggle_sidebar(struct state *s, int right) {
     if (right) {
         s->rb_open = !s->rb_open;
         if (s->rb_open) {
-            s->bell_visible = 0;
+            if (!s->notif_silent) {
+                s->bell_visible = 0;
+                s->notif_unread = 0;
+            }
             s->notif_mtime = notif_mtime_now();
         }
         call_qs("sidebarRight", "toggle");
@@ -826,6 +869,29 @@ static PangoLayout *make_layout(cairo_t *cr, const char *text, double px,
     return l;
 }
 
+static PangoLayout *make_layout_multi(cairo_t *cr, const char *text, double px,
+                                      const char *variations) {
+    PangoLayout *l = pango_cairo_create_layout(cr);
+    PangoFontDescription *d = pango_font_description_new();
+    pango_font_description_set_family(d, "Google Sans Flex");
+    pango_font_description_set_absolute_size(d, px * PANGO_SCALE);
+    if (variations)
+        pango_font_description_set_variations(d, variations);
+    pango_layout_set_font_description(l, d);
+    pango_font_description_free(d);
+    pango_layout_set_text(l, text, -1);
+    // Qt's NativeRendering line height for the 15px todo text is 19px, not
+    // Pango's 20px. The native font advances are also slightly wider, so add
+    // 0.2px letter spacing to keep long task cards at the real width.
+    pango_layout_set_spacing(l, -PANGO_SCALE);
+    PangoAttrList *attrs = pango_attr_list_new();
+    pango_attr_list_insert(attrs,
+        pango_attr_letter_spacing_new((int)lround(0.2 * PANGO_SCALE)));
+    pango_layout_set_attributes(l, attrs);
+    pango_attr_list_unref(attrs);
+    return l;
+}
+
 static void draw_text(cairo_t *cr, const char *text, double px, const char *var,
                       double max_w, double x, double top, struct rgba col) {
     PangoLayout *l = make_layout(cr, text, px, var, max_w);
@@ -925,6 +991,20 @@ static void draw_text_vmid_right(cairo_t *cr, const char *text, double px,
     g_object_unref(l);
 }
 
+static void draw_text_top_left(cairo_t *cr, const char *text, double px,
+                               const char *var, double x, double y,
+                               struct rgba col) {
+    PangoLayout *l = make_layout_multi(cr, text, px, var);
+    PangoRectangle ink;
+    pango_layout_get_pixel_extents(l, &ink, NULL);
+    cairo_set_source_rgba(cr, col.r, col.g, col.b, col.a);
+    // Keep the layout origin: the to-do lines start with two spaces that must
+    // remain visible, exactly like the real StyledText item at the content x.
+    cairo_move_to(cr, x, y - ink.y);
+    pango_cairo_show_layout(cr, l);
+    g_object_unref(l);
+}
+
 static PangoLayout *make_icon(cairo_t *cr, const char *name, double px, int fill) {
     PangoLayout *l = pango_cairo_create_layout(cr);
     PangoFontDescription *d = pango_font_description_new();
@@ -959,6 +1039,26 @@ static double text_width(cairo_t *cr, const char *text, double px, const char *v
     pango_layout_get_pixel_size(l, &w, &h);
     g_object_unref(l);
     return w;
+}
+
+/* Width of the widest line. pango_layout_get_pixel_size() on some Pango
+ * versions reports the sum of all lines, which makes multiline popups
+ * stretch off-screen. */
+static double text_width_max_line(cairo_t *cr, const char *text,
+                                  double px, const char *var) {
+    PangoLayout *l = make_layout_multi(cr, text, px, var);
+    double maxw = 0;
+    int lines = pango_layout_get_line_count(l);
+    for (int i = 0; i < lines; i++) {
+        PangoLayoutLine *line = pango_layout_get_line(l, i);
+        PangoRectangle logical;
+        pango_layout_line_get_pixel_extents(line, NULL, &logical);
+        double w = logical.width;
+        if (w > maxw)
+            maxw = w;
+    }
+    g_object_unref(l);
+    return maxw;
 }
 
 static cairo_surface_t *load_png(const char *name) {
@@ -1189,13 +1289,6 @@ static void draw_popups(struct state *s, cairo_t *cr) {
     char v1[64], v2[64], v3[64];
 
     if (s->popup == 2) { // resources
-        double x = 117, y = 50, w = 275, h = 120;
-        draw_popup_card(cr, x, y, w, h);
-        double cx = x + 10;          // 127
-        double cpu_x = 283;
-        popup_header(cr, cx, 69.5, "memory", "RAM");
-        popup_header(cr, cpu_x, 69.5, "planner_review", "CPU");
-
         double total_gb = s->mem_total_kb / 1048576.0;
         double free_gb = s->mem_avail_kb / 1048576.0;
         double used_gb = total_gb - free_gb;
@@ -1206,24 +1299,57 @@ static void draw_popups(struct state *s, cairo_t *cr) {
         snprintf(v2, sizeof v2, "%s GB", gb);
         fmt_dot1(gb, sizeof gb, total_gb);
         snprintf(v3, sizeof v3, "%s GB", gb);
+        char cpu_s[32];
+        snprintf(cpu_s, sizeof cpu_s, "%d%%", (int)lround(s->cpu_pct * 100));
+
+        double ram_hdr = 17 + 5 + text_width(cr, "RAM", 15.7, VAR_HEAD);
+        double ram_used = 17 + 4 + text_width(cr, "Digunakan:", 15, VAR_MAIN) +
+                          4 + text_width(cr, v1, 15, VAR_MAIN);
+        double ram_free = 17 + 4 + text_width(cr, "Gratis:", 15, VAR_MAIN) +
+                          4 + text_width(cr, v2, 15, VAR_MAIN);
+        double ram_total = 17 + 4 + text_width(cr, "Total:", 15, VAR_MAIN) +
+                           4 + text_width(cr, v3, 15, VAR_MAIN);
+        double cpu_hdr = 17 + 5 + text_width(cr, "CPU", 15.7, VAR_HEAD);
+        double cpu_load = 17 + 4 + text_width(cr, "Beban:", 15, VAR_MAIN) +
+                          4 + text_width(cr, cpu_s, 15, VAR_MAIN);
+        double ram_w = fmax(ram_hdr, fmax(ram_used, fmax(ram_free, ram_total)));
+        double cpu_w = fmax(cpu_hdr, cpu_load);
+
+        double w = ram_w + 12 + cpu_w + 22;
+        double h = 120;
+        double x = 254.5 - w / 2.0, y = 50;
+        draw_popup_card(cr, x, y, w, h);
+        double cx = x + 10;
+        double cpu_x = cx + ram_w + 12;
+        popup_header(cr, cx, 69.5, "memory", "RAM");
+        popup_header(cr, cpu_x, 69.5, "planner_review", "CPU");
         popup_row_follow(cr, cx, 99.5, "clock_loader_60", "Digunakan:", v1);
         popup_row_follow(cr, cx, 124, "check_circle", "Gratis:", v2);
         popup_row_follow(cr, cx, 149, "empty_dashboard", "Total:", v3);
-        snprintf(v1, sizeof v1, "%d%%", (int)lround(s->cpu_pct * 100));
-        popup_row_follow(cr, cpu_x, 99.5, "bolt", "Beban:", v1);
+        popup_row_follow(cr, cpu_x, 99.5, "bolt", "Beban:", cpu_s);
         return;
     }
 
     if (s->popup == 1) { // clock
-        double x = 875, y = 50, w = 229, h = 110;
+        double header_w = 17 + 5 + text_width(cr, s->clock_long_date, 15.7, VAR_HEAD);
+        double uptime_w = 17 + 4 + text_width(cr, "Waktu aktif sistem:", 15, VAR_MAIN) +
+                          4 + text_width(cr, s->uptime_str, 15, VAR_MAIN) + 6;
+        double todo_label_w = 17 + 4 + text_width(cr, "Tugas:", 15, VAR_MAIN);
+        double todo_w = text_width_max_line(cr, s->todo_text, 15, VAR_MAIN);
+        double content_w = fmax(header_w, fmax(uptime_w, fmax(todo_label_w, todo_w)));
+        double w = content_w + 20;
+        double h = 110 + (s->todo_lines - 1) * 19;
+        if (h < 110)
+            h = 110;
+        double x = 989.5 - w / 2.0, y = 50;
         draw_popup_card(cr, x, y, w, h);
-        double cx = x + 8, right = x + w - 8;
+        double cx = x + 10, right = x + w - 10;
         popup_header(cr, cx, 69.5, "calendar_month", s->clock_long_date);
         popup_row(cr, cx, right, 95.5, "timelapse",
                   "Waktu aktif sistem:", s->uptime_str);
         popup_row_follow(cr, cx, 121, "checklist", "Tugas:", NULL);
-        draw_text_vmid_left(cr, "Tidak ada tugas tertunda", 15, VAR_MAIN,
-                            cx, 140.5, C_ON_LAYER1);
+        draw_text_top_left(cr, s->todo_text, 15, VAR_MAIN,
+                           cx, 130, C_ON_LAYER1);
         return;
     }
 
@@ -1238,49 +1364,104 @@ static void draw_popups(struct state *s, cairo_t *cr) {
     int show_time = !(full || tsec <= 0 || rate <= 0.01);
     int show_rate = !(!full && rate == 0.0);
 
-    double x = 1075, y = 50, w = 194;
+    char time_label[64] = "";
+    char time_val[32] = "";
+    if (show_time) {
+        int mins = (int)(tsec / 60);
+        if (mins >= 60)
+            snprintf(time_val, sizeof time_val, "%dh, %dm", mins / 60, mins % 60);
+        else
+            snprintf(time_val, sizeof time_val, "%dm", mins);
+        snprintf(time_label, sizeof time_label, "%s",
+                 charging ? "Waktu hingga penuh:" : "Time to empty:");
+    }
+    char rate_label[64] = "";
+    char rate_val[32] = "";
+    if (show_rate) {
+        snprintf(rate_label, sizeof rate_label, "%s",
+                 full ? "Terisi penuh" : (charging ? "Mengisi:" : "Menguras:"));
+        if (!full) {
+            char num[32];
+            fmt_dot2(num, sizeof num, rate);
+            snprintf(rate_val, sizeof rate_val, "%sW", num);
+        }
+    }
+    char health_val[32];
+    char num[32];
+    fmt_dot1(num, sizeof num, health);
+    snprintf(health_val, sizeof health_val, "%s%%", num);
+
+    double header_w = 17 + 5 + text_width(cr, "Baterai", 15.7, VAR_HEAD);
+    double time_w = 0, rate_w = 0, health_w = 0;
+    if (show_time)
+        time_w = 17 + 4 + text_width(cr, time_label, 15, VAR_MAIN) +
+                 4 + text_width(cr, time_val, 15, VAR_MAIN);
+    if (show_rate) {
+        rate_w = 17 + 4 + text_width(cr, rate_label, 15, VAR_MAIN);
+        if (rate_val[0])
+            rate_w += 4 + text_width(cr, rate_val, 15, VAR_MAIN);
+    }
+    health_w = 17 + 4 + text_width(cr, "Health:", 15, VAR_MAIN) +
+               4 + text_width(cr, health_val, 15, VAR_MAIN);
+    double content_w = fmax(header_w, health_w);
+    if (show_time)
+        content_w = fmax(content_w, time_w);
+    if (show_rate)
+        content_w = fmax(content_w, rate_w);
+    double w = content_w + 16;
     double h = 116;
-    if (!show_time) h -= 24;
-    if (!show_rate) h -= 24;
+    if (!show_time) h -= 24.5;
+    if (!show_rate) h -= 24.5;
+    double x = 1172.5 - w / 2.0, y = 50;
     draw_popup_card(cr, x, y, w, h);
-    double cx = x + 8, right = x + w - 8;
+    double cx = x + 10, right = x + w - 10;
     popup_header(cr, cx, 68.5, "battery_android_full", "Baterai");
 
     double row_y = 96;
     if (show_time) {
-        int mins = (int)(tsec / 60);
-        if (mins >= 60)
-            snprintf(v1, sizeof v1, "%dh, %dm", mins / 60, mins % 60);
-        else
-            snprintf(v1, sizeof v1, "%dm", mins);
-        popup_row(cr, cx, right, row_y, "schedule",
-                  charging ? "Waktu hingga penuh:" : "Time to empty:", v1);
+        popup_row(cr, cx, right, row_y, "schedule", time_label, time_val);
         row_y += 24.5;
     }
     if (show_rate) {
-        char num[32];
-        fmt_dot2(num, sizeof num, rate);
-        snprintf(v1, sizeof v1, "%sW", num);
-        popup_row(cr, cx, right, row_y, "bolt",
-                  full ? "Terisi penuh"
-                       : (charging ? "Mengisi:" : "Menguras:"),
-                  full ? "" : v1);
+        popup_row(cr, cx, right, row_y, "bolt", rate_label, rate_val);
         row_y += 24;
     }
-    char num[32];
-    fmt_dot1(num, sizeof num, health);
-    snprintf(v1, sizeof v1, "%s%%", num);
-    popup_row(cr, cx, right, row_y, "heart_check", "Health:", v1);
+    popup_row(cr, cx, right, row_y, "heart_check", "Health:", health_val);
+}
+
+static const char *cache_home(void) {
+    const char *cache = getenv("XDG_CACHE_HOME");
+    if (cache && cache[0])
+        return cache;
+    static char path[512];
+    if (!path[0]) {
+        const char *home = getenv("HOME");
+        if (!home)
+            home = "/tmp";
+        snprintf(path, sizeof path, "%s/.cache", home);
+    }
+    return path;
+}
+
+static const char *state_home(void) {
+    const char *state = getenv("XDG_STATE_HOME");
+    if (state && state[0])
+        return state;
+    static char path[512];
+    if (!path[0]) {
+        const char *home = getenv("HOME");
+        if (!home)
+            home = "/tmp";
+        snprintf(path, sizeof path, "%s/.local/state", home);
+    }
+    return path;
 }
 
 static const char *notif_path(void) {
     static char path[512];
-    if (path[0])
-        return path;
-    const char *home = getenv("HOME");
-    if (!home)
-        home = "/tmp";
-    snprintf(path, sizeof path, "%s/.cache/quickshell/notifications/notifications.json", home);
+    if (!path[0])
+        snprintf(path, sizeof path,
+                 "%s/quickshell/notifications/notifications.json", cache_home());
     return path;
 }
 
@@ -1289,6 +1470,306 @@ static time_t notif_mtime_now(void) {
     if (stat(notif_path(), &st) != 0)
         return 0;
     return st.st_mtime;
+}
+
+static const char *notif_state_path(void) {
+    static char path[512];
+    if (!path[0])
+        snprintf(path, sizeof path,
+                 "%s/quickshell/notifications/state.json", cache_home());
+    return path;
+}
+
+static const char *todo_path(void) {
+    static char path[512];
+    if (!path[0])
+        snprintf(path, sizeof path, "%s/quickshell/user/todo.json", state_home());
+    return path;
+}
+
+static void read_notif_state(struct state *s) {
+    FILE *f = fopen(notif_state_path(), "r");
+    if (!f) {
+        s->notif_state_valid = 0;
+        return;
+    }
+    int unread = -1, silent = -1, show_count = 0;
+    int n = fscanf(f, "%d %d %d", &unread, &silent, &show_count);
+    fclose(f);
+    if (n < 2)
+        return; // A write may be in progress; keep the previous valid state.
+    if (unread < 0)
+        unread = 0;
+    if (silent < 0)
+        silent = 0;
+    if (!s->notif_state_valid || unread != s->notif_unread ||
+        silent != s->notif_silent || show_count != s->notif_show_count) {
+        s->notif_state_valid = 1;
+        s->notif_unread = unread;
+        s->notif_silent = silent;
+        s->notif_show_count = show_count;
+        s->redraw = 1;
+    }
+}
+
+/* ---- Minimal JSON helpers for Quickshell's todo.json ---- */
+
+static const char *skip_json_ws(const char *p) {
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+        p++;
+    return p;
+}
+
+static int hex_digit(int c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static void utf8_append(char *out, size_t n, size_t *o, unsigned cp) {
+    if (cp < 0x80) {
+        if (*o + 1 < n) out[(*o)++] = (char)cp;
+    } else if (cp < 0x800) {
+        if (*o + 2 < n) {
+            out[(*o)++] = (char)(0xC0 | (cp >> 6));
+            out[(*o)++] = (char)(0x80 | (cp & 0x3F));
+        }
+    } else if (cp < 0x10000) {
+        if (*o + 3 < n) {
+            out[(*o)++] = (char)(0xE0 | (cp >> 12));
+            out[(*o)++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[(*o)++] = (char)(0x80 | (cp & 0x3F));
+        }
+    } else {
+        if (*o + 4 < n) {
+            out[(*o)++] = (char)(0xF0 | (cp >> 18));
+            out[(*o)++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+            out[(*o)++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[(*o)++] = (char)(0x80 | (cp & 0x3F));
+        }
+    }
+}
+
+/* Parse a JSON string starting at p (which points to the opening quote). */
+static int parse_json_string(const char *p, char *out, size_t n, const char **end) {
+    if (*p != '"')
+        return 0;
+    p++;
+    size_t o = 0;
+    while (*p && *p != '"') {
+        if (*p == '\\') {
+            p++;
+            switch (*p) {
+            case '"': if (o + 1 < n) out[o++] = '"'; p++; break;
+            case '\\': if (o + 1 < n) out[o++] = '\\'; p++; break;
+            case '/': if (o + 1 < n) out[o++] = '/'; p++; break;
+            case 'b': if (o + 1 < n) out[o++] = '\b'; p++; break;
+            case 'f': if (o + 1 < n) out[o++] = '\f'; p++; break;
+            case 'n': if (o + 1 < n) out[o++] = '\n'; p++; break;
+            case 'r': if (o + 1 < n) out[o++] = '\r'; p++; break;
+            case 't': if (o + 1 < n) out[o++] = '\t'; p++; break;
+            case 'u': {
+                unsigned cp = 0;
+                int ok = 1;
+                for (int i = 1; i <= 4; i++) {
+                    int h = hex_digit((unsigned char)p[i]);
+                    if (h < 0) { ok = 0; break; }
+                    cp = (cp << 4) | (unsigned)h;
+                }
+                if (!ok) { p++; break; }
+                p += 5;
+                if (cp >= 0xD800 && cp <= 0xDBFF && p[0] == '\\' && p[1] == 'u') {
+                    unsigned lo = 0;
+                    int ok2 = 1;
+                    for (int i = 2; i <= 5; i++) {
+                        int h = hex_digit((unsigned char)p[i]);
+                        if (h < 0) { ok2 = 0; break; }
+                        lo = (lo << 4) | (unsigned)h;
+                    }
+                    if (ok2 && lo >= 0xDC00 && lo <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        p += 6;
+                    }
+                }
+                utf8_append(out, n, &o, cp);
+                break;
+            }
+            default:
+                if (o + 1 < n) out[o++] = *p;
+                p++;
+                break;
+            }
+        } else {
+            if (o + 1 < n) out[o++] = *p;
+            p++;
+        }
+    }
+    out[o] = 0;
+    if (*p == '"')
+        p++;
+    if (end)
+        *end = p;
+    return 1;
+}
+
+static int find_key_string(const char *obj, const char *key, char *out, size_t n) {
+    char pat[64];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(obj, pat);
+    if (!p)
+        return 0;
+    p += strlen(pat);
+    p = skip_json_ws(p);
+    if (*p != ':')
+        return 0;
+    p = skip_json_ws(p + 1);
+    return parse_json_string(p, out, n, NULL);
+}
+
+static int find_key_bool(const char *obj, const char *key, int *out) {
+    char pat[64];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(obj, pat);
+    if (!p)
+        return 0;
+    p += strlen(pat);
+    p = skip_json_ws(p);
+    if (*p != ':')
+        return 0;
+    p = skip_json_ws(p + 1);
+    if (strncmp(p, "true", 4) == 0) { *out = 1; return 1; }
+    if (strncmp(p, "false", 5) == 0) { *out = 0; return 1; }
+    return 0;
+}
+
+static const char *matching_brace(const char *p) {
+    int depth = 0;
+    int in_string = 0;
+    int escape = 0;
+    for (; *p; p++) {
+        if (in_string) {
+            if (escape) escape = 0;
+            else if (*p == '\\') escape = 1;
+            else if (*p == '"') in_string = 0;
+            continue;
+        }
+        if (*p == '"') in_string = 1;
+        else if (*p == '{') depth++;
+        else if (*p == '}') {
+            depth--;
+            if (depth == 0)
+                return p;
+        }
+    }
+    return NULL;
+}
+
+static void set_redirect(struct state *s, int *changed,
+                         const char *text, int lines, int unfinished,
+                         time_t mtime, off_t size) {
+    if (strcmp(s->todo_text, text) != 0 || s->todo_lines != lines ||
+        s->todo_unfinished != unfinished || s->todo_mtime != mtime ||
+        s->todo_size != size) {
+        snprintf(s->todo_text, sizeof s->todo_text, "%s", text);
+        s->todo_lines = lines;
+        s->todo_unfinished = unfinished;
+        s->todo_mtime = mtime;
+        s->todo_size = size;
+        *changed = 1;
+    }
+}
+
+static void load_todos(struct state *s) {
+    struct stat st;
+    if (stat(todo_path(), &st) == 0 && st.st_mtime == s->todo_mtime &&
+        st.st_size == s->todo_size && s->todo_text[0])
+        return;
+
+    int changed = 0;
+    if (stat(todo_path(), &st) != 0) {
+        set_redirect(s, &changed, "Tidak ada tugas tertunda", 1, 0, 0, 0);
+        if (changed)
+            s->redraw = 1;
+        return;
+    }
+
+    FILE *f = fopen(todo_path(), "rb");
+    if (!f)
+        return;
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    if (len < 0)
+        len = 0;
+    if (len > (1 << 20))
+        len = 1 << 20;
+    rewind(f);
+    char *buf = malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(f);
+        return;
+    }
+    size_t got = fread(buf, 1, (size_t)len, f);
+    fclose(f);
+    buf[got] = 0;
+
+    char first[5][512];
+    int nfirst = 0;
+    int unfinished = 0;
+    const char *p = buf;
+    while ((p = strchr(p, '{')) != NULL) {
+        const char *end = matching_brace(p);
+        if (!end)
+            break;
+        size_t olen = (size_t)(end - p + 1);
+        char *obj = malloc(olen + 1);
+        if (!obj)
+            break;
+        memcpy(obj, p, olen);
+        obj[olen] = 0;
+        char content[512];
+        int done = 0;
+        if (find_key_string(obj, "content", content, sizeof content) && content[0]) {
+            if (!find_key_bool(obj, "done", &done))
+                done = 0;
+            if (!done) {
+                if (nfirst < 5)
+                    snprintf(first[nfirst++], sizeof first[0], "%s", content);
+                unfinished++;
+            }
+        }
+        free(obj);
+        p = end + 1;
+    }
+    free(buf);
+
+    char text[4096];
+    text[0] = 0;
+    size_t off = 0;
+    if (unfinished == 0) {
+        snprintf(text, sizeof text, "Tidak ada tugas tertunda");
+    } else {
+        for (int i = 0; i < nfirst; i++) {
+            int n = snprintf(text + off, sizeof text - off, "%s  %d. %s",
+                             i ? "\n" : "", i + 1, first[i]);
+            if (n > 0) off += (size_t)n;
+            if (off >= sizeof text) off = sizeof text - 1;
+        }
+        if (unfinished > 5) {
+            int n = snprintf(text + off, sizeof text - off,
+                             "\n  ... dan %d lainnya", unfinished - 5);
+            if (n > 0) off += (size_t)n;
+            if (off >= sizeof text) off = sizeof text - 1;
+        }
+    }
+    int lines = 1;
+    for (const char *q = text; *q; q++)
+        if (*q == '\n')
+            lines++;
+    set_redirect(s, &changed, text, lines, unfinished,
+                 st.st_mtime, st.st_size);
+    if (changed)
+        s->redraw = 1;
 }
 
 static void draw(struct state *s) {
@@ -1495,10 +1976,34 @@ static void draw(struct state *s) {
 
     struct rgba icon_col = s->rb_open ? C_ON_SECONDARY : C_ON_LAYER0;
     if (s->bell_visible) {
-        draw_icon_mid(cr, "notifications", 19, 0, bell_cx, 20, icon_col);
-        cairo_set_source_rgba(cr, icon_col.r, icon_col.g, icon_col.b, icon_col.a);
-        cairo_arc(cr, bell_cx + 4.5, 15.5, 4, 0, 2 * M_PI);
-        cairo_fill(cr);
+        draw_icon_mid(cr, s->notif_silent ? "notifications_paused" : "notifications",
+                      19, 0, bell_cx, 20, icon_col);
+        if (!s->notif_silent && s->notif_unread > 0) {
+            if (s->notif_show_count) {
+                char count[16];
+                snprintf(count, sizeof count, "%d", s->notif_unread);
+                PangoLayout *cl = make_layout(cr, count, 10, VAR_MAIN, 0);
+                int tw, th;
+                pango_layout_get_pixel_size(cl, &tw, &th);
+                g_object_unref(cl);
+                double d = fmax(tw, th);
+                // Anchored to the top-right of the 19px icon item, matching
+                // NotificationUnreadCount.qml (top/right margins 0).
+                double bx = bell_cx + 9.5 - d;
+                double by = 8.5;
+                cairo_set_source_rgba(cr, C_ON_LAYER0.r, C_ON_LAYER0.g,
+                                      C_ON_LAYER0.b, C_ON_LAYER0.a);
+                cairo_arc(cr, bx + d / 2.0, by + d / 2.0, d / 2.0, 0, 2 * M_PI);
+                cairo_fill(cr);
+                draw_text_centered(cr, count, 10, VAR_MAIN,
+                                   bx + d / 2.0, by + d / 2.0, C_LAYER0_SOLID);
+            } else {
+                cairo_set_source_rgba(cr, C_ON_LAYER0.r, C_ON_LAYER0.g,
+                                      C_ON_LAYER0.b, C_ON_LAYER0.a);
+                cairo_arc(cr, bell_cx + 4.5, 15.5, 4, 0, 2 * M_PI);
+                cairo_fill(cr);
+            }
+        }
     }
 
     draw_icon_mid(cr, "signal_wifi_4_bar", 19, 0, wifi_cx, 20, icon_col);

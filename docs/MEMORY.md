@@ -139,21 +139,22 @@ direplika ulang sebagai klien Wayland standalone di C + cairo/pango
 (`docs/cbar/`). Prototipe ini **tidak** menggantikan shell: ia memanggil target
 IPC Quickshell untuk sidebar/media/overview dan hanya menggambar permukaan bar.
 
-| Metrik | Visual-only (63 px) | + interaksi & popup (200 px) |
+| Metrik | Visual-only (63 px) | + interaksi & popup (320 px) |
 | --- | ---: | ---: |
-| PSS | 9.1 MB | **11.3 MB** |
-| RSS | 29.0 MB | 31.6 MB |
-| Anonymous | 5.2 MB | 6.5 MB |
-| Private dirty | 5.3 MB | 6.6 MB |
+| PSS | 9.1 MB | **10.9 MB** |
+| RSS | 29.0 MB | 31.7 MB |
+| Anonymous | 5.2 MB | 6.6 MB |
+| Private dirty | 5.3 MB | 6.7 MB |
 
 Yang sudah diparitas: geometri/palet, backdrop blur, font, ikon WhiteSur,
 workspace, klik sidebar/workspace/media, scroll brightness/volume/workspace,
-hover tooltip, popup jam/resource/baterai, dan bell notifikasi (heuristik
-mtime). Data baterai memakai UPower; RAM memakai `MemAvailable` seperti
-`ResourceUsage.qml`.
+hover tooltip, popup jam/resource/baterai dengan ukuran dinamis, todo asli dari
+`todo.json`, dan bell notifikasi (unread/silent/count lewat state bridge;
+fallback mtime). Data baterai memakai UPower; RAM memakai `MemAvailable`
+seperti `ResourceUsage.qml`.
 
 Batas: base Qt/Quickshell tetap ada, dan sidebar/panel lain masih dimuat
-Quickshell. Angka 11.3 MB bukan pengganti 344–355 MB shell utuh; ia menunjukkan
+Quickshell. Angka 10.9 MB bukan pengganti 344–355 MB shell utuh; ia menunjukkan
 bahwa permukaan bar sendiri bisa dibuat ~11 MB. Detail build, peta interaksi,
 dan batasan ada di [`cbar/README.md`](cbar/README.md).
 

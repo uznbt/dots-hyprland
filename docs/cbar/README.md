@@ -23,8 +23,13 @@ baterai tentu berbeda antar pengambilan gambar.)*
 - Ikon aplikasi WhiteSur-dark yang diwarnai dengan rumus Colorize Qt.
 - Data live: Hyprland IPC, `/proc`, `/sys`, UPower (`busctl`), `playerctl`.
 - Klik, scroll, hover, dan tooltip/popup (lihat tabel di bawah).
-- Bell notifikasi dinamis: muncul saat ada notifikasi baru, hilang saat sidebar
-  kanan dibuka. Lebar pil ikut berubah 107 ↔ 73 px.
+- Bell notifikasi dinamis, termasuk state bridge Quickshell: titik unread 8×8,
+  ikon `notifications_paused` saat silent/DND, badge angka saat
+  `showUnreadCount=true`, serta lebar pil 107 ↔ 73 px.
+- Todo asli dari `todo.json`: maksimal 5 tugas belum selesai, baris overflow
+  `... dan N lainnya`, dukungan konten multiline, dan tinggi popup dinamis.
+- Ukuran kartu popup mengikuti isi (lebar RAM/CPU, uptime, todo, dan baris
+  baterai yang sedang terlihat), bukan angka hasil ukur yang di-hardcode.
 
 ## Build
 
@@ -87,13 +92,19 @@ tetap click-through.
 
 ## Popup
 
-Tiga kartu mengikuti geometri Quickshell yang diukur langsung:
+Tiga kartu mengikuti geometri Quickshell yang diukur langsung. Posisi kartu
+dikunci ke pusat target hover, sedangkan lebar/tinggi dihitung dari isi:
 
-| Popup | Kartu | Isi |
-| --- | --- | --- |
-| Jam | `875,50 229×110` | tanggal panjang, uptime, todo (`Tidak ada tugas tertunda`) |
-| Resource | `117,50 275×120` | RAM terpakai/gratis/total + beban CPU |
-| Baterai | `1075,50 194×116` | time-to-empty/full, daya, health |
+| Popup | Pusat `x` | Lebar | Tinggi |
+| --- | ---: | --- | --- |
+| Jam | 989.5 | `max(header, uptime, label todo, todo) + 20`; mis. 225 px kosong, 470 px untuk 6 baris todo | `110 + 19 × (baris todo - 1)` |
+| Resource | 254.5 | `ram_w + 12 + cpu_w + 22`; mis. 279 px | 120 px |
+| Baterai | 1172.5 | `max(baris terlihat) + 16`; mis. 195 px | 116 px; −24.5 px per baris waktu/daya yang disembunyikan |
+
+Konten dimulai di `kartu.x + 10` dan berakhir di `kartu.x + lebar − 10`.
+Contoh ukur terbaru: jam `877,50 225×110` (tanpa todo), resource
+`115,50 279×120`, baterai `1075,50 195×116`. Angka ini berubah mengikuti
+uptime, nilai baterai, dan isi todo — jangan menggantinya dengan konstanta.
 
 Warna kartu diambil dari render asli: latar `(27,33,30)`, border
 `(33,42,39)`, bayangan bertingkat, radius 12, padding 10. Data baterai
@@ -110,19 +121,20 @@ CPU, dan waktu baterai berbeda antar pengambilan):
 
 ## Memori
 
-Diukur dengan `/proc/<pid>/smaps_rollup` setelah popup dan bell ditambahkan
-(permukaan 1366×200):
+Diukur dengan `/proc/<pid>/smaps_rollup` setelah popup, bell, dan todo
+ditambahkan (permukaan 1366×320; permukaan diperbesar agar popup todo enam
+baris tidak terpotong):
 
 | Metrik | Nilai |
 | --- | ---: |
-| PSS | **11,3 MB** |
-| RSS | 31,6 MB |
-| Anonymous | 6,5 MB |
-| Private dirty | 6,6 MB |
+| PSS | **10,9 MB** |
+| RSS | 31,7 MB |
+| Anonymous | 6,6 MB |
+| Private dirty | 6,7 MB |
 
 Versi visual-only (permukaan 63 px, tanpa popup/bell) sebelumnya: PSS 9,1 MB,
-RSS 29,0 MB, anon 5,2 MB. Kenaikan ~2 MB berasal dari buffer 200 px dan data
-popup.
+RSS 29,0 MB, anon 5,2 MB. Kenaikan ~1,8 MB berasal dari buffer 320 px dan data
+popup/todo.
 
 Angka ini **bukan** pengganti angka shell: Quickshell utuh (semua panel)
 ~344–355 MB PSS, dan biaya marginal panel bar di dalam Quickshell ~67 MB.
@@ -131,17 +143,25 @@ sidebar dan panel lain masih dipakai.
 
 ## Batasan yang diketahui
 
-- **Bell notifikasi**: Quickshell menyimpan `Notifications.unread` dan
-  `Notifications.silent` di memori dan tidak mengeksposnya lewat IPC. cbar
-  memakai mtime `~/.cache/quickshell/notifications/notifications.json`
-  sebagai heuristik: file berubah → bell tampil; sidebar kanan dibuka → bell
-  disembunyikan dan baseline diperbarui. Mode *silent/DND* tidak terdeteksi,
-  dan badge angka unread tidak digambar (hanya titik).
-- Todo di popup jam masih hardcoded `Tidak ada tugas tertunda`; `todo.json`
-  belum diparse.
-- Lebar kartu popup saat ini fixed ke hasil ukur. Tinggi baterai menyesuaikan
-  kalau baris time-to-empty disembunyikan, tetapi lebarnya belum ikut menyusut.
+- **Bell notifikasi** membutuhkan state bridge di
+  `~/.cache/quickshell/notifications/state.json` (tiga baris: `unread`,
+  `silent`, `showUnreadCount`). Bridge ini ditulis oleh salinan
+  `services/Notifications.qml` di repo ini; tanpa bridge, cbar jatuh ke
+  heuristik mtime `notifications.json` dan tidak bisa membedakan silent/DND
+  atau badge angka. Salinan live di `~/.config/quickshell/ii` harus disinkronkan
+  manual.
+- **Todo** dimuat dari `~/.local/state/quickshell/user/todo.json`; cbar
+  memantau mtime dan ukuran file, bukan perubahan isi Quickshell secara
+  langsung. Tugas `done` difilter, maksimal 5 tugas ditampilkan, dan baris
+  overflow mengikuti `ClockWidgetPopup.qml`.
+- **Visibilitas resource** belum dibaca dari konfigurasi: cbar selalu
+  menggambar RAM dan CPU serta tidak menggambar swap, sesuai konfigurasi
+  persist saat ini (`showMemory=true`, `showCpu=true`, `showSwap=false`).
+  Mengubah opsi itu di Quickshell belum otomatis mengubah cbar.
 - Popup tidak interaktif (kartu aslinya juga hanya menampilkan data).
+- Persentase CPU bisa berbeda beberapa persen dari Quickshell karena waktu
+  sampling `/proc/stat` tidak disinkronkan; RAM, baterai, jam, dan uptime
+  memakai sumber yang sama.
 - Tray menu, banner notifikasi, sidebar, overview, dan panel lain tetap milik
   Quickshell. cbar memanggil target IPC `qs -c ii`.
 - Prototipe dikalibrasi untuk 1366×768 skala 1 dan konfigurasi bar saat ini.
