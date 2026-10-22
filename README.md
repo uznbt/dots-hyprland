@@ -43,6 +43,10 @@ pulled from freely while these personal tweaks stay under my control.
 - **Housekeeping scripts** — `clean_chromium.sh`, `clean_sober.sh` for wiping
   browser/app traces.
 - **Lower-RAM profile** — see [RAM notes](#-lower-ram-profile) below.
+- **C bar prototype** — an experimental standalone C/cairo replica of the bar
+  (clicks, scroll, hover popups, notification bell) used to measure the real
+  cost of the QML bar. It is *not* enabled by default; details in
+  [`docs/cbar/`](docs/cbar/README.md).
 
 <div align="center">
     <h2>• install •</h2>
