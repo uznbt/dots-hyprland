@@ -330,6 +330,9 @@ Singleton {
         function setSilent(value: bool): void {
             root.silent = value;
         }
+        function setUnread(value: int): void {
+            root.unread = value;
+        }
         function markAllRead(): void {
             root.markAllRead();
         }
