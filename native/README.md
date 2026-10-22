@@ -7,7 +7,8 @@ Status: **Fase 1 — bar native sudah bisa dijalankan, belum menjadi default.**
 ## Yang sudah ada
 
 - `dots-bar`: bar Wayland C + cairo/pango, hasil port dari `docs/cbar`.
-  Layout tengah dihitung dari lebar output, mendukung auto-hide dan bar bawah.
+  Layout tengah dihitung dari lebar output, mendukung auto-hide, bar bawah,
+  dan warna Material You dari `generated/colors.json`.
 - `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
 - `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
 - Build Meson + smoke test IPC.
@@ -67,6 +68,8 @@ langsung sehingga fitur harian tidak mati.
 - Belum ada `dots-session`; `run-bar.sh` adalah harness uji, bukan supervisor
   produksi.
 - Belum ada tray, popup interaktif penuh, dan animasi auto-hide.
+- Warna layer grup/popup border masih konstanta prototipe; warna utama,
+  background, teks, dan secondary sudah mengikuti `colors.json`.
 - Source `src/ui/bar.c` masih berupa port awal; refactor menjadi modul
   dilakukan setelah fondasi daemon/IPC siap.
 
@@ -87,10 +90,12 @@ Bar native yang diuji pada 1366×768:
 
 | Metrik | Nilai |
 | --- | ---: |
-| PSS | 11,2 MB (konfigurasi json-c) |
-| RSS | 32,3 MB |
-| Anonymous | 6,8 MB |
-| Private dirty | 6,9 MB |
+| PSS | 11,0 MB |
+| RSS | 32,1 MB |
+| Anonymous | 6,7 MB |
+| Private dirty | 6,8 MB |
+
+`dotsd` (idle, config sudah dimuat): PSS sekitar 0,4 MB.
 
 Angka ini hanya bar, bukan pengganti total shell. Target dan urutan lengkap
 ada di `/home/uznbt/.opencode/plan/rombak-dots-ke-c.md`.

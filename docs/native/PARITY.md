@@ -38,6 +38,7 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Bell notifikasi | ya | butuh bridge state Quickshell |
 | Todo popup | ya | `todo.json` |
 | Popup jam/resource/baterai | ya | non-interaktif, seperti QML |
+| Warna Material You | sebagian | background/primary/on-*/secondary; layer1 masih konstanta |
 | Klik sidebar | ya | lewat `dotsd` -> adapter Quickshell |
 | Scroll brightness/volume/workspace | ya | |
 | Auto-hide | ya | hover strip + pushWindows |
@@ -53,7 +54,8 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | --- | ---: |
 | Quickshell baseline | 344–355 MB |
 | Quickshell + bar | 139 MB |
-| `dots-bar` | 11,2 MB |
+| `dots-bar` | 11,0 MB |
+| `dotsd` idle | 0,4 MB |
 
 ## Gate berikutnya
 

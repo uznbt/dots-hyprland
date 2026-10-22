@@ -29,6 +29,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <json-c/json.h>
+
 #include "common/config.h"
 #include "common/ipc.h"
 #include "common/paths.h"
@@ -46,23 +48,23 @@
 #define VAR_HEAD  "wght=500,wdth=100,opsz=100"
 
 struct rgba { double r, g, b, a; };
-static const struct rgba C_LAYER0       = { 18/255.0, 23/255.0, 20/255.0, 0.87 };
-static const struct rgba C_LAYER1       = { 86/255.0, 83/255.0, 90/255.0, 0.10 };
-static const struct rgba C_PRIMARY      = { 135/255.0, 214/255.0, 189/255.0, 1.0 };
-static const struct rgba C_ON_PRIMARY   = { 0/255.0, 56/255.0, 44/255.0, 1.0 };
-static const struct rgba C_ON_SECONDARY = { 205/255.0, 233/255.0, 222/255.0, 1.0 };
-static const struct rgba C_ON_LAYER0    = { 222/255.0, 228/255.0, 224/255.0, 1.0 };
-static const struct rgba C_LAYER0_SOLID = { 18/255.0, 23/255.0, 20/255.0, 1.0 };
-static const struct rgba C_ON_LAYER1    = { 191/255.0, 201/255.0, 196/255.0, 1.0 };
-static const struct rgba C_SUBTEXT      = { 137/255.0, 147/255.0, 142/255.0, 1.0 };
-static const struct rgba C_DOT          = { 133/255.0, 136/255.0, 138/255.0, 0.505 };
-static const struct rgba C_OCCUPIED     = { 52/255.0, 76/255.0, 68/255.0, 0.6 };
-static const struct rgba C_ERROR        = { 255/255.0, 180/255.0, 171/255.0, 1.0 };
-static const struct rgba C_SECONDARY    = { 52/255.0, 76/255.0, 68/255.0, 1.0 };
-static const struct rgba C_SECONDARY_HV = { 67/255.0, 92/255.0, 83/255.0, 1.0 };
+static struct rgba C_LAYER0       = { 18/255.0, 23/255.0, 20/255.0, 0.87 };
+static struct rgba C_LAYER1       = { 86/255.0, 83/255.0, 90/255.0, 0.10 };
+static struct rgba C_PRIMARY      = { 135/255.0, 214/255.0, 189/255.0, 1.0 };
+static struct rgba C_ON_PRIMARY   = { 0/255.0, 56/255.0, 44/255.0, 1.0 };
+static struct rgba C_ON_SECONDARY = { 205/255.0, 233/255.0, 222/255.0, 1.0 };
+static struct rgba C_ON_LAYER0    = { 222/255.0, 228/255.0, 224/255.0, 1.0 };
+static struct rgba C_LAYER0_SOLID = { 18/255.0, 23/255.0, 20/255.0, 1.0 };
+static struct rgba C_ON_LAYER1    = { 191/255.0, 201/255.0, 196/255.0, 1.0 };
+static struct rgba C_SUBTEXT      = { 137/255.0, 147/255.0, 142/255.0, 1.0 };
+static struct rgba C_DOT          = { 133/255.0, 136/255.0, 138/255.0, 0.505 };
+static struct rgba C_OCCUPIED     = { 52/255.0, 76/255.0, 68/255.0, 0.6 };
+static struct rgba C_ERROR        = { 255/255.0, 180/255.0, 171/255.0, 1.0 };
+static struct rgba C_SECONDARY    = { 52/255.0, 76/255.0, 68/255.0, 1.0 };
+static struct rgba C_SECONDARY_HV = { 67/255.0, 92/255.0, 83/255.0, 1.0 };
 static const struct rgba C_LAYER1_HOVER = { 185/255.0, 196/255.0, 190/255.0, 0.008 };
-static const struct rgba C_POPUP_BG     = { 27/255.0, 33/255.0, 30/255.0, 1.0 };
-static const struct rgba C_POPUP_BORDER = { 33/255.0, 42/255.0, 39/255.0, 1.0 };
+static struct rgba C_POPUP_BG     = { 27/255.0, 33/255.0, 30/255.0, 1.0 };
+static struct rgba C_POPUP_BORDER = { 33/255.0, 42/255.0, 39/255.0, 1.0 };
 
 struct state {
     // Wayland
@@ -156,6 +158,10 @@ struct state {
     int cfg_autohide_push;
     int cfg_bar_bottom;
     struct dots_config cfg;
+    time_t theme_mtime;
+    long theme_mtime_ns;
+    off_t theme_size;
+    int theme_loaded;
 
     // Icons
     cairo_surface_t *icon_kitty;
@@ -1722,6 +1728,111 @@ static const char *notif_state_path(void) {
     return path;
 }
 
+static const char *colors_path(void) {
+    static char path[640];
+    if (!path[0])
+        snprintf(path, sizeof path,
+                 "%s/quickshell/user/generated/colors.json", state_home());
+    return path;
+}
+
+static int parse_hex_color(const char *text, struct rgba *out) {
+    if (!text || text[0] != '#')
+        return 0;
+    size_t n = strlen(text);
+    if (n != 7 && n != 9)
+        return 0;
+    char buf[3] = {0};
+    unsigned vals[4] = {0, 0, 0, 255};
+    int count = (n == 9) ? 4 : 3;
+    for (int i = 0; i < count; i++) {
+        buf[0] = text[1 + i * 2];
+        buf[1] = text[2 + i * 2];
+        char *end = NULL;
+        unsigned long v = strtoul(buf, &end, 16);
+        if (!end || *end || v > 255)
+            return 0;
+        vals[i] = (unsigned)v;
+    }
+    out->r = vals[0] / 255.0;
+    out->g = vals[1] / 255.0;
+    out->b = vals[2] / 255.0;
+    out->a = vals[3] / 255.0;
+    return 1;
+}
+
+static int theme_color(struct json_object *root, const char *key,
+                       struct rgba *out, double alpha) {
+    json_object *v = NULL;
+    if (!json_object_object_get_ex(root, key, &v) ||
+        !json_object_is_type(v, json_type_string))
+        return 0;
+    if (!parse_hex_color(json_object_get_string(v), out))
+        return 0;
+    out->a = alpha;
+    return 1;
+}
+
+static void refresh_theme(struct state *s) {
+    const char *path = colors_path();
+    struct stat st;
+    if (stat(path, &st) < 0)
+        return;
+    if (s->theme_loaded && st.st_mtim.tv_sec == s->theme_mtime &&
+        st.st_mtim.tv_nsec == s->theme_mtime_ns &&
+        st.st_size == s->theme_size)
+        return;
+
+    struct json_object *root = json_object_from_file(path);
+    if (!root)
+        return;
+
+    struct rgba base = C_LAYER0, primary = C_PRIMARY, on_primary = C_ON_PRIMARY;
+    struct rgba on_bg = C_ON_LAYER0, on_variant = C_ON_LAYER1;
+    struct rgba outline = C_SUBTEXT, error = C_ERROR;
+    struct rgba sec = C_SECONDARY, on_sec = C_ON_SECONDARY;
+    struct rgba popup = C_POPUP_BG;
+
+    theme_color(root, "background", &base, 0.87);
+    theme_color(root, "primary", &primary, 1.0);
+    theme_color(root, "on_primary", &on_primary, 1.0);
+    theme_color(root, "on_background", &on_bg, 1.0);
+    theme_color(root, "on_surface_variant", &on_variant, 1.0);
+    theme_color(root, "outline", &outline, 1.0);
+    theme_color(root, "error", &error, 1.0);
+    theme_color(root, "secondary_container", &sec, 1.0);
+    theme_color(root, "on_secondary_container", &on_sec, 1.0);
+    theme_color(root, "surface_container", &popup, 1.0);
+    json_object_put(root);
+
+    C_LAYER0 = base;
+    C_LAYER0_SOLID = base;
+    C_LAYER0_SOLID.a = 1.0;
+    C_PRIMARY = primary;
+    C_ON_PRIMARY = on_primary;
+    C_ON_LAYER0 = on_bg;
+    C_ON_LAYER1 = on_variant;
+    C_SUBTEXT = outline;
+    C_ERROR = error;
+    C_SECONDARY = sec;
+    C_ON_SECONDARY = on_sec;
+    C_POPUP_BG = popup;
+    C_OCCUPIED = sec;
+    C_OCCUPIED.a = 0.6;
+    C_DOT = outline;
+    C_DOT.a = 0.505;
+    C_SECONDARY_HV.r = 0.9 * sec.r + 0.1 * on_sec.r;
+    C_SECONDARY_HV.g = 0.9 * sec.g + 0.1 * on_sec.g;
+    C_SECONDARY_HV.b = 0.9 * sec.b + 0.1 * on_sec.b;
+    C_SECONDARY_HV.a = 1.0;
+
+    s->theme_mtime = st.st_mtim.tv_sec;
+    s->theme_mtime_ns = st.st_mtim.tv_nsec;
+    s->theme_size = st.st_size;
+    s->theme_loaded = 1;
+    s->redraw = 1;
+}
+
 static const char *todo_path(void) {
     static char path[512];
     if (!path[0])
@@ -2573,6 +2684,7 @@ int main(void) {
     s.hypr_buf = malloc(1024 * 512);
 
     read_config(&s);
+    refresh_theme(&s);
     if (s.cfg_auto_hide)
         s.bar_visible = 0;
     s.bar_y = s.cfg_bar_bottom ? SURFACE_H - BAR_H : 0;
@@ -2671,6 +2783,8 @@ int main(void) {
             s.last_res = now;
             s.redraw = 1;
         }
+        if (now - s.last_res >= 2)
+            refresh_theme(&s);
         if (now - s.last_media >= 5) {
             refresh_media(&s);
             s.last_media = now;
