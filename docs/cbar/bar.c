@@ -105,6 +105,8 @@ struct state {
     char aw_title[512];
     double mem_pct;
     unsigned long mem_total_kb, mem_free_kb, mem_avail_kb;
+    double swap_pct;
+    unsigned long swap_total_kb, swap_free_kb;
     double cpu_pct;
     unsigned long long cpu_total, cpu_idle;
     int battery_pct;
@@ -128,6 +130,18 @@ struct state {
     char media_artist[256];
     char media_status[32];
     double media_pos, media_len;
+
+    // Resource layout / Quickshell config
+    double resources_w;       // width of the Resources mouse area in the bar
+    double media_x;           // first pixel of the media badge
+    int cfg_loaded;
+    time_t cfg_mtime;
+    long cfg_mtime_ns;
+    off_t cfg_size;
+    int cfg_show_memory, cfg_show_cpu, cfg_show_swap;
+    int cfg_always_cpu, cfg_always_swap;
+    int cfg_mem_warn, cfg_cpu_warn, cfg_swap_warn;
+    int cfg_battery_low;
 
     // Icons
     cairo_surface_t *icon_kitty;
@@ -353,6 +367,7 @@ static void read_mem(struct state *s) {
         return;
     char line[256];
     unsigned long total = 0, avail = 0, free_kb = 0;
+    unsigned long swap_total = 0, swap_free = 0;
     while (fgets(line, sizeof line, f)) {
         if (sscanf(line, "MemTotal: %lu", &total) == 1)
             continue;
@@ -360,13 +375,23 @@ static void read_mem(struct state *s) {
             continue;
         if (sscanf(line, "MemFree: %lu", &free_kb) == 1)
             continue;
+        if (sscanf(line, "SwapTotal: %lu", &swap_total) == 1)
+            continue;
+        if (sscanf(line, "SwapFree: %lu", &swap_free) == 1)
+            continue;
     }
     fclose(f);
     s->mem_total_kb = total;
     s->mem_free_kb = free_kb;
     s->mem_avail_kb = avail;
+    s->swap_total_kb = swap_total;
+    s->swap_free_kb = swap_free;
     if (total > 0)
         s->mem_pct = (double)(total - avail) / (double)total;
+    if (swap_total > 0)
+        s->swap_pct = (double)(swap_total - swap_free) / (double)swap_total;
+    else
+        s->swap_pct = 0;
 }
 
 static void read_cpu(struct state *s) {
@@ -593,9 +618,11 @@ static void refresh_hypr(struct state *s) {
 
 static time_t notif_mtime_now(void);
 static void read_notif_state(struct state *s);
+static void read_config(struct state *s);
 static void load_todos(struct state *s);
 
 static void refresh_sidebars(struct state *s) {
+    read_config(s);
     read_notif_state(s);
     load_todos(s);
     if (!s->hypr_buf)
@@ -738,8 +765,8 @@ static void handle_click(struct state *s, uint32_t button, double x, double y) {
         }
         return;
     }
-    // Media widget.
-    if (x >= 303 && x < 539) {
+    // Media widget. Its left edge follows the Resources group.
+    if (x >= s->media_x + 5 && x < 539) {
         if (button == BTN_LEFT)
             call_qs("mediaControls", "toggle");
         else if (button == BTN_MIDDLE)
@@ -774,6 +801,17 @@ static void handle_scroll(struct state *s, double x, double y, double dy) {
 }
 
 static void update_hover(struct state *s) {
+    // Screenshot/testing hook; normal input is unaffected when unset.
+    const char *forced = getenv("CPROTO_FORCE_POPUP");
+    if (forced) {
+        int p = atoi(forced);
+        if (p != s->popup) {
+            s->popup = p;
+            s->redraw = 1;
+        }
+        return;
+    }
+
     unsigned mask = 0;
     int popup = 0;
     if (s->ptr_inside && s->ptr_y >= 0 && s->ptr_y < BAR_H) {
@@ -783,7 +821,8 @@ static void update_hover(struct state *s) {
         else if (x >= 1182)
             mask |= 2;
 
-        if (x >= 184 && x < 303)
+        if (x >= 184 && s->resources_w > 8 &&
+            x < 184 + s->resources_w + 9)
             popup = 2;      // resources
         else if (x >= 1140 && x < 1182)
             popup = 3;      // battery
@@ -1183,20 +1222,22 @@ static void draw_badge(cairo_t *cr, double cx, double cy, double value,
     cairo_paint(cr);
 }
 
-static void draw_battery(cairo_t *cr, double x, double y, double pct, int charging) {
+static void draw_battery(cairo_t *cr, double x, double y, double pct,
+                         int charging, int low) {
     if (getenv("CPROTO_FORCE_CHARGING"))
         charging = 1;
+    struct rgba fill = (low && !charging) ? C_ERROR : C_ON_SECONDARY;
     cairo_push_group(cr);
 
     rounded_rect(cr, x, y, 30, 18, 9);
-    cairo_set_source_rgba(cr, C_ON_SECONDARY.r, C_ON_SECONDARY.g, C_ON_SECONDARY.b, 0.5);
+    cairo_set_source_rgba(cr, fill.r, fill.g, fill.b, 0.5);
     cairo_fill(cr);
 
     cairo_save(cr);
     rounded_rect(cr, x, y, 30, 18, 9);
     cairo_clip(cr);
     cairo_rectangle(cr, x, y, 30 * pct, 18);
-    cairo_set_source_rgba(cr, C_ON_SECONDARY.r, C_ON_SECONDARY.g, C_ON_SECONDARY.b, 1.0);
+    cairo_set_source_rgba(cr, fill.r, fill.g, fill.b, 1.0);
     cairo_fill(cr);
     cairo_restore(cr);
 
@@ -1312,21 +1353,79 @@ static void draw_popups(struct state *s, cairo_t *cr) {
         double cpu_hdr = 17 + 5 + text_width(cr, "CPU", 15.7, VAR_HEAD);
         double cpu_load = 17 + 4 + text_width(cr, "Beban:", 15, VAR_MAIN) +
                           4 + text_width(cr, cpu_s, 15, VAR_MAIN);
-        double ram_w = fmax(ram_hdr, fmax(ram_used, fmax(ram_free, ram_total)));
-        double cpu_w = fmax(cpu_hdr, cpu_load);
+        int show_mem = s->cfg_show_memory;
+        int show_swap = s->cfg_show_swap && s->swap_total_kb > 0;
+        int show_cpu = s->cfg_show_cpu;
+        if (!show_mem && !show_swap && !show_cpu)
+            return;
 
-        double w = ram_w + 12 + cpu_w + 22;
-        double h = 120;
-        double x = 254.5 - w / 2.0, y = 50;
+        double ram_w = fmax(ram_hdr, fmax(ram_used, fmax(ram_free, ram_total)));
+        double swap_w = 0, cpu_w = fmax(cpu_hdr, cpu_load);
+        char sw1[64] = "", sw2[64] = "", sw3[64] = "";
+        if (show_swap) {
+            double st_gb = s->swap_total_kb / 1048576.0;
+            double sf_gb = s->swap_free_kb / 1048576.0;
+            double su_gb = st_gb - sf_gb;
+            char gb[64];
+            fmt_dot1(gb, sizeof gb, su_gb);
+            snprintf(sw1, sizeof sw1, "%s GB", gb);
+            fmt_dot1(gb, sizeof gb, sf_gb);
+            snprintf(sw2, sizeof sw2, "%s GB", gb);
+            fmt_dot1(gb, sizeof gb, st_gb);
+            snprintf(sw3, sizeof sw3, "%s GB", gb);
+            double sh = 17 + 5 + text_width(cr, "Swap", 15.7, VAR_HEAD);
+            double su = 17 + 4 + text_width(cr, "Digunakan:", 15, VAR_MAIN) +
+                        4 + text_width(cr, sw1, 15, VAR_MAIN);
+            double sf = 17 + 4 + text_width(cr, "Gratis:", 15, VAR_MAIN) +
+                        4 + text_width(cr, sw2, 15, VAR_MAIN);
+            double st = 17 + 4 + text_width(cr, "Total:", 15, VAR_MAIN) +
+                        4 + text_width(cr, sw3, 15, VAR_MAIN);
+            swap_w = fmax(sh, fmax(su, fmax(sf, st)));
+        }
+
+        double content_w = 0;
+        int ncol = 0;
+        if (show_mem) {
+            content_w += ram_w;
+            ncol++;
+        }
+        if (show_swap) {
+            if (ncol)
+                content_w += 12;
+            content_w += swap_w;
+            ncol++;
+        }
+        if (show_cpu) {
+            if (ncol)
+                content_w += 12;
+            content_w += cpu_w;
+            ncol++;
+        }
+        double w = content_w + 22;
+        // The RAM/Swap columns have three rows; a CPU-only card is shorter.
+        double h = (show_mem || show_swap) ? 120 : 70;
+        double center = 254.5 + (s->resources_w - 110.0) / 2.0;
+        double x = center - w / 2.0, y = 50;
         draw_popup_card(cr, x, y, w, h);
         double cx = x + 10;
-        double cpu_x = cx + ram_w + 12;
-        popup_header(cr, cx, 69.5, "memory", "RAM");
-        popup_header(cr, cpu_x, 69.5, "planner_review", "CPU");
-        popup_row_follow(cr, cx, 99.5, "clock_loader_60", "Digunakan:", v1);
-        popup_row_follow(cr, cx, 124, "check_circle", "Gratis:", v2);
-        popup_row_follow(cr, cx, 149, "empty_dashboard", "Total:", v3);
-        popup_row_follow(cr, cpu_x, 99.5, "bolt", "Beban:", cpu_s);
+        if (show_mem) {
+            popup_header(cr, cx, 69.5, "memory", "RAM");
+            popup_row_follow(cr, cx, 99.5, "clock_loader_60", "Digunakan:", v1);
+            popup_row_follow(cr, cx, 124, "check_circle", "Gratis:", v2);
+            popup_row_follow(cr, cx, 149, "empty_dashboard", "Total:", v3);
+            cx += ram_w + 12;
+        }
+        if (show_swap) {
+            popup_header(cr, cx, 69.5, "swap_horiz", "Swap");
+            popup_row_follow(cr, cx, 99.5, "clock_loader_60", "Digunakan:", sw1);
+            popup_row_follow(cr, cx, 124, "check_circle", "Gratis:", sw2);
+            popup_row_follow(cr, cx, 149, "empty_dashboard", "Total:", sw3);
+            cx += swap_w + 12;
+        }
+        if (show_cpu) {
+            popup_header(cr, cx, 69.5, "planner_review", "CPU");
+            popup_row_follow(cr, cx, 99.5, "bolt", "Beban:", cpu_s);
+        }
         return;
     }
 
@@ -1487,6 +1586,23 @@ static const char *todo_path(void) {
     return path;
 }
 
+static const char *config_path(void) {
+    static char path[512];
+    if (!path[0]) {
+        const char *config = getenv("XDG_CONFIG_HOME");
+        if (config && config[0]) {
+            snprintf(path, sizeof path, "%s/illogical-impulse/config.json", config);
+        } else {
+            const char *home = getenv("HOME");
+            if (!home)
+                home = "/tmp";
+            snprintf(path, sizeof path,
+                     "%s/.config/illogical-impulse/config.json", home);
+        }
+    }
+    return path;
+}
+
 static void read_notif_state(struct state *s) {
     FILE *f = fopen(notif_state_path(), "r");
     if (!f) {
@@ -1643,6 +1759,25 @@ static int find_key_bool(const char *obj, const char *key, int *out) {
     return 0;
 }
 
+static int find_key_int(const char *obj, const char *key, int *out) {
+    char pat[64];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(obj, pat);
+    if (!p)
+        return 0;
+    p += strlen(pat);
+    p = skip_json_ws(p);
+    if (*p != ':')
+        return 0;
+    p = skip_json_ws(p + 1);
+    char *end = NULL;
+    long v = strtol(p, &end, 10);
+    if (end == p)
+        return 0;
+    *out = (int)v;
+    return 1;
+}
+
 static const char *matching_brace(const char *p) {
     int depth = 0;
     int in_string = 0;
@@ -1663,6 +1798,91 @@ static const char *matching_brace(const char *p) {
         }
     }
     return NULL;
+}
+
+static void read_config(struct state *s) {
+    if (!s->cfg_loaded) {
+        s->cfg_show_memory = 1;
+        s->cfg_show_cpu = 1;
+        s->cfg_show_swap = 1;
+        s->cfg_always_cpu = 1;
+        s->cfg_always_swap = 1;
+        s->cfg_mem_warn = 95;
+        s->cfg_cpu_warn = 90;
+        s->cfg_swap_warn = 85;
+        s->cfg_battery_low = 20;
+        s->cfg_loaded = 1;
+    }
+
+    struct stat st;
+    if (stat(config_path(), &st) != 0)
+        return;
+    if (s->cfg_mtime == st.st_mtime && s->cfg_mtime_ns == st.st_mtim.tv_nsec &&
+        s->cfg_size == st.st_size)
+        return;
+
+    FILE *f = fopen(config_path(), "r");
+    if (!f)
+        return;
+    size_t len = st.st_size > 0 ? (size_t)st.st_size : 0;
+    if (len > 1024 * 1024) {
+        fclose(f);
+        return;
+    }
+    char *buf = malloc(len + 1);
+    if (!buf) {
+        fclose(f);
+        return;
+    }
+    size_t got = fread(buf, 1, len, f);
+    fclose(f);
+    buf[got] = 0;
+
+    int old_mem = s->cfg_show_memory, old_cpu = s->cfg_show_cpu;
+    int old_swap = s->cfg_show_swap, old_acpu = s->cfg_always_cpu;
+    int old_aswap = s->cfg_always_swap;
+    int old_mw = s->cfg_mem_warn, old_cw = s->cfg_cpu_warn;
+    int old_sw = s->cfg_swap_warn, old_blow = s->cfg_battery_low;
+    int v;
+
+    if (find_key_bool(buf, "showMemory", &v))
+        s->cfg_show_memory = v;
+    if (find_key_bool(buf, "showCpu", &v))
+        s->cfg_show_cpu = v;
+    if (find_key_bool(buf, "showSwap", &v))
+        s->cfg_show_swap = v;
+    if (find_key_bool(buf, "alwaysShowCpu", &v))
+        s->cfg_always_cpu = v;
+    if (find_key_bool(buf, "alwaysShowSwap", &v))
+        s->cfg_always_swap = v;
+    if (find_key_int(buf, "memoryWarningThreshold", &v) && v >= 0 && v <= 100)
+        s->cfg_mem_warn = v;
+    if (find_key_int(buf, "cpuWarningThreshold", &v) && v >= 0 && v <= 100)
+        s->cfg_cpu_warn = v;
+    if (find_key_int(buf, "swapWarningThreshold", &v) && v >= 0 && v <= 100)
+        s->cfg_swap_warn = v;
+    // "low" is only used by battery.low in the Quickshell config.
+    if (find_key_int(buf, "low", &v) && v >= 0 && v <= 100)
+        s->cfg_battery_low = v;
+
+    free(buf);
+    s->cfg_mtime = st.st_mtime;
+    s->cfg_mtime_ns = st.st_mtim.tv_nsec;
+    s->cfg_size = st.st_size;
+
+    if (old_mem != s->cfg_show_memory || old_cpu != s->cfg_show_cpu ||
+        old_swap != s->cfg_show_swap || old_acpu != s->cfg_always_cpu ||
+        old_aswap != s->cfg_always_swap || old_mw != s->cfg_mem_warn ||
+        old_cw != s->cfg_cpu_warn || old_sw != s->cfg_swap_warn ||
+        old_blow != s->cfg_battery_low)
+        s->redraw = 1;
+
+    // Enabling an indicator starts its data source immediately instead of
+    // waiting for the next 10-second refresh tick.
+    if ((!old_mem && s->cfg_show_memory) || (!old_swap && s->cfg_show_swap))
+        read_mem(s);
+    if (!old_cpu && s->cfg_show_cpu)
+        read_cpu(s);
 }
 
 static void set_redirect(struct state *s, int *changed,
@@ -1843,27 +2063,59 @@ static void draw(struct state *s) {
     draw_text(cr, s->aw_title[0] ? s->aw_title : "", 15, VAR_MAIN,
               98.5, 63.5, 17.5, C_ON_LAYER0);
 
-    // Resources + media.
+    // Resources + media. Resource visibility follows Quickshell's
+    // Config.options.bar.resources: RAM, optional Swap, optional CPU. The
+    // resource rows use fixed-width "100" text, so each badge is item_w wide.
     double w100 = 26.0; // Qt text metric for "100" at 15px, numbers family
     double res_x = lg + 4; // group padding 0 + row left margin
     double item_w = 20 + 2 + w100;
-    double resources_w = 2 * item_w + 6 + 8;
-
-    draw_badge(cr, res_x + 10, 20, s->mem_pct,
-               "memory", s->mem_pct * 100 >= 80);
+    double rx = res_x;
+    double resources_w = 8; // row left + right margins
     char num[16];
-    snprintf(num, sizeof num, "%d", (int)lround(s->mem_pct * 100));
-    draw_text_centered(cr, num, 15, VAR_NUM,
-                       res_x + 20 + 2 + w100 / 2.0, 20, C_ON_LAYER1);
 
-    double cpu_x = res_x + item_w + 6;
-    draw_badge(cr, cpu_x + 10, 20, s->cpu_pct,
-               "planner_review", s->cpu_pct * 100 >= 80);
-    snprintf(num, sizeof num, "%d", (int)lround(s->cpu_pct * 100));
-    draw_text_centered(cr, num, 15, VAR_NUM,
-                       cpu_x + 20 + 2 + w100 / 2.0, 20, C_ON_LAYER1);
+    if (s->cfg_show_memory) {
+        draw_badge(cr, rx + 10, 20, s->mem_pct, "memory",
+                   s->mem_pct * 100 >= s->cfg_mem_warn);
+        snprintf(num, sizeof num, "%d", (int)lround(s->mem_pct * 100));
+        draw_text_centered(cr, num, 15, VAR_NUM,
+                           rx + 20 + 2 + w100 / 2.0, 20, C_ON_LAYER1);
+        rx += item_w;
+        resources_w += item_w;
+    }
+
+    int show_swap = s->cfg_show_swap &&
+        ((s->cfg_always_swap && s->swap_pct > 0) ||
+         s->media_title[0] == 0);
+    if (show_swap) {
+        // Swap and CPU each carry Layout.leftMargin: shown ? 6 : 0.
+        rx += 6;
+        resources_w += 6;
+        draw_badge(cr, rx + 10, 20, s->swap_pct, "swap_horiz",
+                   s->swap_pct * 100 >= s->cfg_swap_warn);
+        snprintf(num, sizeof num, "%d", (int)lround(s->swap_pct * 100));
+        draw_text_centered(cr, num, 15, VAR_NUM,
+                           rx + 20 + 2 + w100 / 2.0, 20, C_ON_LAYER1);
+        rx += item_w;
+        resources_w += item_w;
+    }
+
+    int show_cpu = s->cfg_show_cpu &&
+        (s->cfg_always_cpu || s->media_title[0] == 0);
+    if (show_cpu) {
+        rx += 6;
+        resources_w += 6;
+        draw_badge(cr, rx + 10, 20, s->cpu_pct, "planner_review",
+                   s->cpu_pct * 100 >= s->cfg_cpu_warn);
+        snprintf(num, sizeof num, "%d", (int)lround(s->cpu_pct * 100));
+        draw_text_centered(cr, num, 15, VAR_NUM,
+                           rx + 20 + 2 + w100 / 2.0, 20, C_ON_LAYER1);
+        rx += item_w;
+        resources_w += item_w;
+    }
+    s->resources_w = resources_w;
 
     double media_x = lg + resources_w + 4;
+    s->media_x = media_x;
     double progress = 0;
     if (s->media_len > 0)
         progress = s->media_pos / s->media_len;
@@ -1951,7 +2203,8 @@ static void draw(struct state *s) {
 
     // Battery.
     double bat_x = rg + 350 - 30;
-    draw_battery(cr, bat_x, 11, s->battery_pct / 100.0, s->battery_charging);
+    draw_battery(cr, bat_x, 11, s->battery_pct / 100.0, s->battery_charging,
+                 s->battery_pct <= s->cfg_battery_low);
 
     // Right indicators: bell (+ unread dot), wifi, bluetooth.
     // With the notification indicator shown the button is 107px wide
@@ -2219,6 +2472,11 @@ int main(void) {
     struct state s;
     memset(&s, 0, sizeof s);
     s.active_ws = 1;
+    s.resources_w = 110; // current default: RAM + CPU, no Swap
+    s.media_x = 298;
+    const char *forced_popup = getenv("CPROTO_FORCE_POPUP");
+    if (forced_popup)
+        s.popup = atoi(forced_popup);
     s.hypr_buf = malloc(1024 * 512);
 
     s.icon_kitty = load_png("kitty.png");
@@ -2229,8 +2487,10 @@ int main(void) {
     refresh_clock(&s);
     refresh_hypr(&s);
     refresh_sidebars(&s);
-    read_mem(&s);
-    read_cpu(&s);
+    if (s.cfg_show_memory || s.cfg_show_swap)
+        read_mem(&s);
+    if (s.cfg_show_cpu)
+        read_cpu(&s);
     read_battery(&s);
     refresh_media(&s);
     s.notif_mtime = notif_mtime_now();
@@ -2297,8 +2557,12 @@ int main(void) {
             s.redraw = 1;
         }
         if (now - s.last_res >= 10) {
-            read_mem(&s);
-            read_cpu(&s);
+            // Match ResourceUsage.qml's lazy polling: don't read an indicator
+            // that is currently disabled in the config.
+            if (s.cfg_show_memory || s.cfg_show_swap)
+                read_mem(&s);
+            if (s.cfg_show_cpu)
+                read_cpu(&s);
             read_battery(&s);
             s.last_res = now;
             s.redraw = 1;

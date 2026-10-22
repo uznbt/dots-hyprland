@@ -28,7 +28,15 @@ baterai tentu berbeda antar pengambilan gambar.)*
   `showUnreadCount=true`, serta lebar pil 107 ↔ 73 px.
 - Todo asli dari `todo.json`: maksimal 5 tugas belum selesai, baris overflow
   `... dan N lainnya`, dukungan konten multiline, dan tinggi popup dinamis.
-- Ukuran kartu popup mengikuti isi (lebar RAM/CPU, uptime, todo, dan baris
+- Visibilitas resource dibaca dari `~/.config/illogical-impulse/config.json`:
+  `showMemory`, `showCpu`, `showSwap`, `alwaysShowCpu`, dan `alwaysShowSwap`.
+  Swap memakai `/proc/meminfo` (`SwapTotal`/`SwapFree`) dan badge CPU mengikuti
+  aturan media Quickshell. Polling RAM/CPU juga berhenti saat indikatornya
+  dimatikan, sama seperti `ResourceUsage.qml`.
+- Ambang warna error resource (`memoryWarningThreshold`,
+  `cpuWarningThreshold`, `swapWarningThreshold`) dan `battery.low` dibaca dari
+  config yang sama; baterai low berubah merah saat tidak sedang di-charge.
+- Ukuran kartu popup mengikuti isi (lebar RAM/Swap/CPU, uptime, todo, dan baris
   baterai yang sedang terlihat), bukan angka hasil ukur yang di-hardcode.
 
 ## Build
@@ -63,6 +71,14 @@ Jalankan dari direktori ini (aset PNG dibaca relatif terhadap cwd):
 ./cproto
 ```
 
+Untuk mengambil screenshot popup tanpa menggerakkan pointer (mis. saat
+membandingkan geometri), popup bisa dipaksa lewat env: `1` jam, `2` resource,
+`3` baterai.
+
+```sh
+CPROTO_FORCE_POPUP=2 ./cproto
+```
+
 Kembali ke bar asli:
 
 ```sh
@@ -81,8 +97,8 @@ Kalau Hyprland di-reload, rule perlu ditambahkan lagi.
 | `x < 184` | scroll: brightness naik/turun (`brightness increment/decrement`) |
 | Workspace `548..818` | klik kiri: fokus workspace; klik kanan: overview (`search workspacesToggle`); back/side: special workspace |
 | Workspace `548..818` | scroll atas/bawah: workspace relatif `r-1`/`r+1` |
-| Media `303..539` | kiri: buka `mediaControls`; tengah: play/pause; kanan/forward: next; back: previous |
-| Resource `184..303` | hover: popup RAM/CPU; tidak ada aksi klik |
+| Media `media_x+5..539` (default `303..539`) | kiri: buka `mediaControls`; tengah: play/pause; kanan/forward: next; back: previous |
+| Resource `184..184+resources_w+9` (default `184..303`) | hover: popup RAM/Swap/CPU; tidak ada aksi klik |
 | Jam `905..1050` | hover: popup jam; klik: `sidebarRight toggle` |
 | Baterai `1140..1182` | hover: popup baterai; klik: `sidebarRight toggle` |
 | Kanan `x >= 1182` | klik kiri: `sidebarRight toggle`; scroll: volume `2%+`/`2%-` |
@@ -93,18 +109,22 @@ tetap click-through.
 ## Popup
 
 Tiga kartu mengikuti geometri Quickshell yang diukur langsung. Posisi kartu
-dikunci ke pusat target hover, sedangkan lebar/tinggi dihitung dari isi:
+mengikuti pusat target hover, sedangkan lebar/tinggi dihitung dari isi. Khusus
+resource, pusat kartu ikut bergeser saat indikator RAM/Swap/CPU berubah:
 
 | Popup | Pusat `x` | Lebar | Tinggi |
-| --- | ---: | --- | --- |
+| --- | --- | --- | --- |
 | Jam | 989.5 | `max(header, uptime, label todo, todo) + 20`; mis. 225 px kosong, 470 px untuk 6 baris todo | `110 + 19 × (baris todo - 1)` |
-| Resource | 254.5 | `ram_w + 12 + cpu_w + 22`; mis. 279 px | 120 px |
+| Resource | `254.5 + (resources_w − 110) / 2` | `ram_w [+ 12 + swap_w] [+ 12 + cpu_w] + 22` untuk kolom yang terlihat; mis. 279 px | 120 px jika RAM/Swap tampil; 70 px jika hanya CPU |
 | Baterai | 1172.5 | `max(baris terlihat) + 16`; mis. 195 px | 116 px; −24.5 px per baris waktu/daya yang disembunyikan |
 
+`resources_w` adalah lebar area resource di bar (default 110 px untuk RAM+CPU).
 Konten dimulai di `kartu.x + 10` dan berakhir di `kartu.x + lebar − 10`.
-Contoh ukur terbaru: jam `877,50 225×110` (tanpa todo), resource
-`115,50 279×120`, baterai `1075,50 195×116`. Angka ini berubah mengikuti
-uptime, nilai baterai, dan isi todo — jangan menggantinya dengan konstanta.
+Contoh ukur: jam `877,50 225×110` (tanpa todo), resource RAM+CPU
+`115,50 279×120` (pusat 254.5), RAM saja `143,50 169×120` (227.5), CPU saja
+`171,50 120×70` (231), dan RAM+Swap+CPU `62,50 438×120` (281.5). Angka ini
+berubah mengikuti uptime, nilai baterai, isi todo, dan indikator yang aktif —
+jangan menggantinya dengan konstanta.
 
 Warna kartu diambil dari render asli: latar `(27,33,30)`, border
 `(33,42,39)`, bayangan bertingkat, radius 12, padding 10. Data baterai
@@ -127,14 +147,14 @@ baris tidak terpotong):
 
 | Metrik | Nilai |
 | --- | ---: |
-| PSS | **10,9 MB** |
-| RSS | 31,7 MB |
-| Anonymous | 6,6 MB |
-| Private dirty | 6,7 MB |
+| PSS | **11,5 MB** |
+| RSS | 32,2 MB |
+| Anonymous | 6,9 MB |
+| Private dirty | 6,9 MB |
 
 Versi visual-only (permukaan 63 px, tanpa popup/bell) sebelumnya: PSS 9,1 MB,
-RSS 29,0 MB, anon 5,2 MB. Kenaikan ~1,8 MB berasal dari buffer 320 px dan data
-popup/todo.
+RSS 29,0 MB, anon 5,2 MB. Kenaikan ~2,4 MB berasal dari buffer 320 px, data
+popup/todo, dan pembacaan config resource.
 
 Angka ini **bukan** pengganti angka shell: Quickshell utuh (semua panel)
 ~344–355 MB PSS, dan biaya marginal panel bar di dalam Quickshell ~67 MB.
@@ -154,14 +174,17 @@ sidebar dan panel lain masih dipakai.
   memantau mtime dan ukuran file, bukan perubahan isi Quickshell secara
   langsung. Tugas `done` difilter, maksimal 5 tugas ditampilkan, dan baris
   overflow mengikuti `ClockWidgetPopup.qml`.
-- **Visibilitas resource** belum dibaca dari konfigurasi: cbar selalu
-  menggambar RAM dan CPU serta tidak menggambar swap, sesuai konfigurasi
-  persist saat ini (`showMemory=true`, `showCpu=true`, `showSwap=false`).
-  Mengubah opsi itu di Quickshell belum otomatis mengubah cbar.
+- **Config resource** dibaca ulang sekitar satu detik setelah file berubah.
+  Yang dipetakan baru `showMemory`, `showCpu`, `showSwap`, `alwaysShowCpu`,
+  `alwaysShowSwap`, tiga ambang warning, dan `battery.low`. Mode bar
+  singkat (`useShortenedForm`) dan `alwaysShowAllResources` belum dimodelkan;
+  cbar mengasumsikan bar penuh seperti konfigurasi saat ini.
 - Popup tidak interaktif (kartu aslinya juga hanya menampilkan data).
 - Persentase CPU bisa berbeda beberapa persen dari Quickshell karena waktu
   sampling `/proc/stat` tidak disinkronkan; RAM, baterai, jam, dan uptime
   memakai sumber yang sama.
+- Metrik teks Pango vs Qt bisa membuat lebar kartu/pil berbeda beberapa
+  piksel; pusat kartu, tinggi, dan posisi relatif tetap dipertahankan.
 - Tray menu, banner notifikasi, sidebar, overview, dan panel lain tetap milik
   Quickshell. cbar memanggil target IPC `qs -c ii`.
 - Prototipe dikalibrasi untuk 1366×768 skala 1 dan konfigurasi bar saat ini.
