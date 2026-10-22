@@ -86,3 +86,49 @@ ps -eo rss,comm --no-headers | awk '{r[$2]+=$1} END {for (i in r) printf "%8.0f 
 * `checkupdates` menyalin database pacman ke `/tmp`; saat berjalan dia
   boros beberapa puluh MB. Karena itu dijalan dengan prioritas terendah dan
   cek pertama ditunda.
+
+## 6. Arsitektur panel lazy (putaran ketiga)
+
+Sebelumnya semua `PanelLoader` di `panelFamilies/IllogicalImpulseFamily.qml`
+aktif begitu `Config.ready`, jadi 22 panel dibuat sekaligus walau belum pernah
+dibuka. Sekarang 9 panel baru dibuat saat **pertama kali dipakai**:
+
+`cheatsheet`, `displayPanel`, `mediaControls`, `onScreenKeyboard`, `overlay`,
+`regionSelector`, `screenTranslator`, `sessionScreen`, `wallpaperSelector`.
+
+Cara kerjanya:
+
+1. **`panelFamilies/PanelLoader.qml`** punya `lazy`, `open`, dan `everLoaded`.
+   `active` baru bernilai true saat `open` (flag `GlobalStates.*Open`) true.
+   Setelah aktif sekali, `everLoaded` menahan panel tetap hidup supaya
+   tutup–buka berikutnya instan dan animasinya tidak terpotong.
+2. **`panelFamilies/PanelStubs.qml`** selalu dimuat dan berisi semua
+   `IpcHandler` + `GlobalShortcut` untuk panel lazy. Isinya hanya mengubah
+   flag `GlobalStates` atau memanggil service — tidak menyentuh state internal
+   panel, jadi panelnya sendiri boleh belum ada.
+3. Handler di dalam panel-panel tersebut dihapus supaya tidak ada target IPC
+   ganda. Panel tetap bereaksi terhadap flag yang sama seperti sebelumnya.
+
+Hasil pengukuran (PSS, 30–35 detik setelah restart bersih):
+
+| Konfigurasi | PSS | Anon |
+| --- | ---: | ---: |
+| Semua panel eager (sebelum) | 375.5 MB | 294 MB |
+| 9 panel lazy (sesudah) | **354.7 MB** | **285.8 MB** |
+
+Hemat **~21 MB** di startup. Setelah sebuah panel dibuka sekali, memori
+kembali ke ukuran panel itu (memang disengaja, supaya tidak rebuild terus).
+
+Catatan penting untuk eksperimen berikutnya:
+
+* Memuat panel lewat `source: "file://" + Quickshell.shellPath(...)` **tidak
+  bisa** dipakai untuk panel ii: import `qs.modules.ii.*` di dalam file itu
+  gagal (`module ... is not installed`). Yang bekerja adalah tetap memakai
+  `component:` (QML ikut dikompilasi bersama family) dan menunda
+  **instansiasi**-nya lewat `active` seperti di atas. Biaya kompilasi QML
+  kecil; yang mahal adalah objek/window/timer yang dibuat.
+* Jangan memberi `requiredCondition` untuk overlay yang membaca
+  `OverlayContext.hasPinnedWidgets`: pinned widget hanya bisa dibuat dari
+  overlay itu sendiri, jadi membuka overlay sekali sudah menahan loader-nya
+  tetap hidup.
+

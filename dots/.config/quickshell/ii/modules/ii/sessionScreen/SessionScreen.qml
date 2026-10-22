@@ -18,6 +18,10 @@ Scope {
     Loader {
         id: sessionLoader
         active: GlobalStates.sessionOpen
+        Component.onCompleted: {
+            if (sessionLoader.active)
+                SessionWarnings.refresh();
+        }
         onActiveChanged: {
             if (sessionLoader.active)
                 SessionWarnings.refresh();
@@ -290,49 +294,6 @@ Scope {
             anchors.centerIn: parent
             color: descriptionLabel.textColor
             text: descriptionLabel.text
-        }
-    }
-
-    IpcHandler {
-        target: "session"
-
-        function toggle(): void {
-            GlobalStates.sessionOpen = !GlobalStates.sessionOpen;
-        }
-
-        function close(): void {
-            GlobalStates.sessionOpen = false;
-        }
-
-        function open(): void {
-            GlobalStates.sessionOpen = true;
-        }
-    }
-
-    GlobalShortcut {
-        name: "sessionToggle"
-        description: "Toggles session screen on press"
-
-        onPressed: {
-            GlobalStates.sessionOpen = !GlobalStates.sessionOpen;
-        }
-    }
-
-    GlobalShortcut {
-        name: "sessionOpen"
-        description: "Opens session screen on press"
-
-        onPressed: {
-            GlobalStates.sessionOpen = true;
-        }
-    }
-
-    GlobalShortcut {
-        name: "sessionClose"
-        description: "Closes session screen on press"
-
-        onPressed: {
-            GlobalStates.sessionOpen = false;
         }
     }
 }

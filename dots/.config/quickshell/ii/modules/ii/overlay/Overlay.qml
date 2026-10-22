@@ -74,21 +74,4 @@ Scope {
             }
         }
     }
-
-    IpcHandler {
-        target: "overlay"
-
-        function toggle(): void {
-            GlobalStates.overlayOpen = !GlobalStates.overlayOpen;
-        }
-    }
-
-    GlobalShortcut {
-        name: "overlayToggle"
-        description: "Toggles overlay on press"
-
-        onPressed: {
-            GlobalStates.overlayOpen = !GlobalStates.overlayOpen;
-        }
-    }
 }

@@ -10,6 +10,7 @@ pragma ComponentBehavior: Bound
 Singleton {
     id: root
     property bool barOpen: true
+    property bool cheatsheetOpen: false
     property bool crosshairOpen: false
     property bool displayPanelOpen: false
     property bool sidebarLeftOpen: false
@@ -22,6 +23,10 @@ Singleton {
     property bool overviewAppsVisible: true
     property bool overviewOpen: false
     property bool regionSelectorOpen: false
+    // Region selector arguments. Kept here so the trigger (PanelStubs) can set
+    // them before the panel itself is loaded.
+    property int regionAction: 0
+    property int regionSelectionMode: 0
     property bool searchOpen: false
     property bool screenLocked: false
     property bool screenLockContainsCharacters: false

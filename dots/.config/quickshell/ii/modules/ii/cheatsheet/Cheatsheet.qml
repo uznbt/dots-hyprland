@@ -1,3 +1,4 @@
+import qs
 import qs.services
 import qs.modules.common
 import qs.modules.common.widgets
@@ -26,7 +27,7 @@ Scope { // Scope
 
     Loader {
         id: cheatsheetLoader
-        active: false
+        active: GlobalStates.cheatsheetOpen
 
         sourceComponent: PanelWindow { // Window
             id: cheatsheetRoot
@@ -40,7 +41,7 @@ Scope { // Scope
             }
 
             function hide() {
-                cheatsheetLoader.active = false;
+                GlobalStates.cheatsheetOpen = false;
             }
             exclusiveZone: 0
             implicitWidth: cheatsheetBackground.width + Appearance.sizes.elevationMargin * 2
@@ -175,49 +176,6 @@ Scope { // Scope
                     }
                 }
             }
-        }
-    }
-
-    IpcHandler {
-        target: "cheatsheet"
-
-        function toggle(): void {
-            cheatsheetLoader.active = !cheatsheetLoader.active;
-        }
-
-        function close(): void {
-            cheatsheetLoader.active = false;
-        }
-
-        function open(): void {
-            cheatsheetLoader.active = true;
-        }
-    }
-
-    GlobalShortcut {
-        name: "cheatsheetToggle"
-        description: "Toggles cheatsheet on press"
-
-        onPressed: {
-            cheatsheetLoader.active = !cheatsheetLoader.active;
-        }
-    }
-
-    GlobalShortcut {
-        name: "cheatsheetOpen"
-        description: "Opens cheatsheet on press"
-
-        onPressed: {
-            cheatsheetLoader.active = true;
-        }
-    }
-
-    GlobalShortcut {
-        name: "cheatsheetClose"
-        description: "Closes cheatsheet on press"
-
-        onPressed: {
-            cheatsheetLoader.active = false;
         }
     }
 }

@@ -126,48 +126,4 @@ Scope { // Scope
 
         }
     }
-
-    IpcHandler {
-        target: "osk"
-
-        function toggle(): void {
-            GlobalStates.oskOpen = !GlobalStates.oskOpen;
-        }
-
-        function close(): void {
-            GlobalStates.oskOpen = false
-        }
-
-        function open(): void {
-            GlobalStates.oskOpen = true
-        }
-    }
-
-    GlobalShortcut {
-        name: "oskToggle"
-        description: "Toggles on screen keyboard on press"
-
-        onPressed: {
-            GlobalStates.oskOpen = !GlobalStates.oskOpen;
-        }
-    }
-
-    GlobalShortcut {
-        name: "oskOpen"
-        description: "Opens on screen keyboard on press"
-
-        onPressed: {
-            GlobalStates.oskOpen = true
-        }
-    }
-
-    GlobalShortcut {
-        name: "oskClose"
-        description: "Closes on screen keyboard on press"
-
-        onPressed: {
-            GlobalStates.oskOpen = false
-        }
-    }
-
 }

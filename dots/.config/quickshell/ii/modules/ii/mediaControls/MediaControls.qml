@@ -187,48 +187,4 @@ Scope {
             }
         }
     }
-
-    IpcHandler {
-        target: "mediaControls"
-
-        function toggle(): void {
-            mediaControlsLoader.active = !mediaControlsLoader.active;
-            if (mediaControlsLoader.active)
-                Notifications.timeoutAll();
-        }
-
-        function close(): void {
-            mediaControlsLoader.active = false;
-        }
-
-        function open(): void {
-            mediaControlsLoader.active = true;
-            Notifications.timeoutAll();
-        }
-    }
-
-    GlobalShortcut {
-        name: "mediaControlsToggle"
-        description: "Toggles media controls on press"
-
-        onPressed: {
-            GlobalStates.mediaControlsOpen = !GlobalStates.mediaControlsOpen;
-        }
-    }
-    GlobalShortcut {
-        name: "mediaControlsOpen"
-        description: "Opens media controls on press"
-
-        onPressed: {
-            GlobalStates.mediaControlsOpen = true;
-        }
-    }
-    GlobalShortcut {
-        name: "mediaControlsClose"
-        description: "Closes media controls on press"
-
-        onPressed: {
-            GlobalStates.mediaControlsOpen = false;
-        }
-    }
 }
