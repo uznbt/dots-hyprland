@@ -9,7 +9,7 @@ Terakhir diperbarui: **23 Oktober 2026**
 ## Posisi repo
 
 - Branch: `native/c-shell`
-- Commit terakhir: `0e2b3ed feat(native): add responsive shortened bar forms`
+- Commit terakhir: jalankan `git log -1 --oneline`.
 - Baseline Quickshell: tag `legacy/quickshell-2026-10` (branch `main`).
 - Perubahan user yang belum di-commit dan **jangan disentuh**:
   - `dots/.config/quickshell/ii/modules/common/Persistent.qml`
@@ -22,27 +22,26 @@ Terakhir diperbarui: **23 Oktober 2026**
 - Bar atas/bawah, auto-hide + hover strip + `pushWindows`.
 - Bentuk shortened horizontal: ambang 1200 px dan 1000 px, mengikuti
   `BarContent.qml`.
+- Bar vertical kiri/kanan (`bar.vertical`, `bar.bottom`), termasuk layout
+  resources/media, workspace, jam, baterai, dan indikator kanan bawah.
+- Corner style `0` hug (dekorasi sudut layar), `1` float (margin 5 px,
+  radius 18, border), `2` plain; `showBackground` dan `borderless` dihormati.
+- Perubahan `vertical`, `bottom`, atau `cornerStyle` saat runtime membuat ulang
+  layer surface tanpa restart proses.
 - Workspace/app icon, window aktif, media (`playerctl`), RAM/swap/CPU,
   jam/tanggal, baterai/UPower, bell notifikasi.
 - Popup jam/resource/baterai (non-interaktif, sama seperti QML).
 - Klik sidebar dan scroll brightness/volume/workspace lewat `dotsd` → Quickshell.
 - `dotsd`, `dots-ctl`, `dots-dispatch`, `dots-session` (mode hybrid).
 - Smoke test IPC lulus.
-- PSS bar 1 output: ~11 MB; 2 output: ~12,9 MB. `dotsd` idle: ~0,4 MB.
+- PSS bar 1 output: ~11,3 MB; 2 output: ~12,5 MB. `dotsd` idle: ~0,4 MB.
 
 ## Sedang dikerjakan / berikutnya
 
-Prioritas gate G1: **vertical bar + corner style**, lalu panel inti native.
-
-1. Vertical bar (`bar.vertical = true`), kiri/kanan mengikuti `bar.bottom`.
-2. Corner style:
-   - `0` Hug: background penuh + dekorasi sudut layar.
-   - `1` Float: margin 5 px, radius 18, border.
-   - `2` Plain: background persegi penuh.
-3. Recreate layer surface saat `vertical`, `bottom`, atau `cornerStyle` berubah
-   lewat config (tanpa restart proses).
-4. Uji visual horizontal dan vertical pada 1366×768 + headless 1920×1080.
-5. Ukur ulang PSS setelah perubahan.
+Vertical bar dan corner style sudah selesai dan diuji visual pada 1366×768
+(horizontal/vertical, kiri/kanan, hug/float) serta headless 1920×1080 untuk
+multi-output. Berikutnya port panel inti native (sidebar, overview, OSD, dock)
+agar `dots-session backend native` bisa dibuka.
 
 ## Belum ada
 

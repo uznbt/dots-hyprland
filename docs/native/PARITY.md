@@ -44,11 +44,13 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | Auto-hide | ya | hover strip + pushWindows |
 | Bar bottom | ya | |
 | Shortened form | ya | ambang 1200/1000 px seperti BarContent.qml |
+| Vertical bar | ya | kiri/kanan; konten, workspace, jam, baterai, indikator bawah |
+| Corner style | ya | 0 hug, 1 float (margin 5, radius 18, border), 2 plain |
+| `showBackground` / `borderless` | ya | background dan kartu grup mengikuti config |
 | Tray | belum | |
 | Multi-monitor | ya | satu proses, surface per output |
 | `screenList` | ya | filter output dari config |
 | Hotplug output | ya | uji create/remove headless output |
-| Vertical bar | belum | |
 | Supervisor hybrid | ya | `dots-session start/stop` |
 | Backend switch | sebagian | `hybrid`/`quickshell`; `native` ditolak sampai panel native ada |
 
@@ -58,18 +60,18 @@ Baseline: branch `native/c-shell`, tag `legacy/quickshell-2026-10`.
 | --- | ---: |
 | Quickshell baseline | 344–355 MB |
 | Quickshell + bar | 139 MB |
-| `dots-bar` 1 output | 11,0 MB |
-| `dots-bar` 2 output (1366 + 1920) | 12,9 MB |
+| `dots-bar` 1 output | 11,3 MB |
+| `dots-bar` 2 output (1366 + 1920) | 12,5 MB |
 | `dotsd` idle | 0,4 MB |
 
 ## Gate berikutnya
 
 G1 belum lulus karena:
 
-- belum vertical bar;
 - interaksi panel masih Quickshell;
 - popup belum interaktif penuh;
 - belum diuji 3 hari sebagai bar default.
 
-Langkah berikutnya: vertical bar + corner style, lalu port panel inti
-ke Wayland native; setelah itu baru `dots-session backend native` boleh dibuka.
+Vertical bar dan corner style sudah selesai (hug/float/plain, kiri/kanan,
+termasuk popup di samping bar). Langkah berikutnya: port panel inti ke Wayland
+native; setelah itu baru `dots-session backend native` boleh dibuka.

@@ -38,7 +38,12 @@
 #include "wlr-layer-shell-client.h"
 
 #define SURFACE_H 320
+#define VERTICAL_SURFACE_W 320
 #define BAR_H 40
+#define BASE_VBAR_W 46
+#define BAR_GAP 5
+#define WINDOW_ROUNDING 18
+#define SCREEN_ROUNDING 23
 #define NWS 10
 #define WS_W 26.0
 
@@ -87,6 +92,7 @@ struct bar_view {
     int out_w, out_h;
     int configured;
     double bar_y;
+    double bar_x;
     int bar_visible;
     int ptr_inside;
     double ptr_x, ptr_y;
@@ -126,6 +132,7 @@ struct state {
     long long last_pointer_ms;
     int bar_visible;
     double bar_y;
+    double bar_x;
     unsigned hover_mask;      // bit 0 = left area, bit 1 = right area
     int lb_open, rb_open;     // sidebar toggled states, polled from Hyprland
     int popup;                // 0 none, 1 clock, 2 resources, 3 battery
@@ -192,6 +199,10 @@ struct state {
     int cfg_autohide_hover;
     int cfg_autohide_push;
     int cfg_bar_bottom;
+    int cfg_bar_vertical;
+    int cfg_corner_style;
+    int cfg_show_background;
+    int cfg_borderless;
     struct dots_config cfg;
     time_t theme_mtime;
     long theme_mtime_ns;
@@ -215,6 +226,18 @@ enum bar_form {
     BAR_FORM_SHORT = 1,
     BAR_FORM_HELLA_SHORT = 2,
 };
+
+/* Tebal bar (tinggi untuk horizontal, lebar untuk vertical). Float style
+ * menambah 2 x BAR_GAP, sama seperti Appearance.sizes.barHeight/verticalBarWidth. */
+static int bar_thickness(const struct state *s) {
+    if (s->cfg_bar_vertical)
+        return BASE_VBAR_W + (s->cfg_corner_style == 1 ? BAR_GAP * 2 : 0);
+    return BAR_H + (s->cfg_corner_style == 1 ? BAR_GAP * 2 : 0);
+}
+
+static double bar_gap(const struct state *s) {
+    return s->cfg_corner_style == 1 ? BAR_GAP : 0.0;
+}
 
 struct bar_layout {
     double w;
@@ -249,6 +272,60 @@ static struct bar_layout bar_layout_for(const struct state *s) {
     l.wg = l.wg_group + 5;
     l.rg = l.rg_group + 5;
     return l;
+}
+
+/* Layout vertical bar. Nilai tinggi grup mengikuti ukuran QML:
+ * Resources (18 px per baris, spacing 10) + media, Workspaces 10 x 26,
+ * lalu jam + baterai. Grup tengah dipusatkan secara vertikal. */
+struct vbar_layout {
+    double h;
+    double x, w;          // posisi dan tebal bar di dalam surface
+    double cx0, cw;       // area konten (setelah margin float)
+    double top_end;       // batas section atas
+    double bottom_start;  // awal section bawah
+    double res_y, res_h;
+    double media_y;
+    double ws_y, ws_h;
+    double clock_y, clock_h;
+    double bat_y, bat_h;
+    double right_y, right_h;
+};
+
+static struct vbar_layout vbar_layout_for(const struct state *s) {
+    struct vbar_layout v;
+    memset(&v, 0, sizeof v);
+    v.h = s->buf_h > 0 ? s->buf_h : (s->out_h > 0 ? s->out_h : 768);
+    v.w = bar_thickness(s);
+    double sw = s->buf_w > 0 ? s->buf_w : VERTICAL_SURFACE_W;
+    v.x = s->cfg_bar_bottom ? sw - v.w : 0;
+    v.cx0 = v.x + (s->cfg_corner_style == 1 ? BAR_GAP : 0);
+    v.cw = v.w - (s->cfg_corner_style == 1 ? BAR_GAP * 2 : 0);
+
+    int nres = (s->cfg_show_memory ? 1 : 0) +
+               (s->cfg_show_swap ? 1 : 0) +
+               (s->cfg_show_cpu ? 1 : 0);
+    double rows = nres > 0 ? nres * 18.0 + (nres - 1) * 10.0 : 0;
+    v.res_h = 16 + rows + 12 + 18;
+    v.media_y = v.res_y = 0; // diisi setelah posisi grup diketahui
+
+    v.ws_h = 12 + NWS * 26.0;
+    v.clock_h = 16 + 40 + 8 + 1 + 8 + 36;
+    double total = v.res_h + 4 + v.ws_h + 4 + v.clock_h;
+    double top = (v.h - total) / 2.0;
+    if (top < 8)
+        top = 8;
+
+    v.res_y = top;
+    v.media_y = v.res_y + 8 + rows + 12 + 9;
+    v.ws_y = v.res_y + v.res_h + 4;
+    v.clock_y = v.ws_y + v.ws_h + 4;
+    v.bat_y = v.clock_y + v.clock_h - 8 - 36;
+    v.bat_h = 36;
+    v.top_end = v.res_y;
+    v.bottom_start = v.clock_y + v.clock_h;
+    v.right_h = 85;
+    v.right_y = v.h - SCREEN_ROUNDING - v.right_h;
+    return v;
 }
 
 static char g_base[600] = ".";
@@ -323,6 +400,37 @@ static void rounded_rect(cairo_t *cr, double x, double y, double w, double h, do
     cairo_arc(cr, x + w - r, y + h - r, r, 0, M_PI_2);
     cairo_arc(cr, x + r, y + h - r, r, M_PI_2, M_PI);
     cairo_arc(cr, x + r, y + r, r, M_PI, 3 * M_PI_2);
+    cairo_close_path(cr);
+}
+
+/* Dekorasi sudut "Hug": mengisi daerah di luar busur seperempat lingkaran,
+ * sama seperti RoundCorner.qml. corner: 0=TL, 1=TR, 2=BL, 3=BR. */
+static void hug_corner(cairo_t *cr, double x, double y, double r, int corner) {
+    if (r <= 0)
+        return;
+    cairo_new_path(cr);
+    switch (corner) {
+    case 0: // top-left
+        cairo_move_to(cr, x, y + r);
+        cairo_arc(cr, x + r, y + r, r, M_PI, 1.5 * M_PI);
+        cairo_line_to(cr, x, y);
+        break;
+    case 1: // top-right
+        cairo_move_to(cr, x + r, y);
+        cairo_arc(cr, x, y + r, r, -M_PI_2, 0);
+        cairo_line_to(cr, x + r, y);
+        break;
+    case 2: // bottom-left
+        cairo_move_to(cr, x, y + r);
+        cairo_arc(cr, x + r, y, r, M_PI_2, M_PI);
+        cairo_line_to(cr, x, y + r);
+        break;
+    default: // bottom-right
+        cairo_move_to(cr, x + r, y + r);
+        cairo_arc(cr, x, y, r, 0, M_PI_2);
+        cairo_line_to(cr, x + r, y + r);
+        break;
+    }
     cairo_close_path(cr);
 }
 
@@ -760,6 +868,7 @@ static void refresh_hypr(struct state *s) {
 static time_t notif_mtime_now(void);
 static void read_notif_state(struct state *s);
 static void read_config(struct state *s);
+static void view_recreate_surfaces(struct state *s);
 static void load_todos(struct state *s);
 
 static void refresh_sidebars(struct state *s) {
@@ -934,6 +1043,7 @@ static void view_load(struct state *s, struct bar_view *v) {
     s->out_h = v->out_h;
     s->configured = v->configured;
     s->bar_y = v->bar_y;
+    s->bar_x = v->bar_x;
     s->bar_visible = v->bar_visible;
     s->ptr_inside = v->ptr_inside;
     s->ptr_x = v->ptr_x;
@@ -957,6 +1067,7 @@ static void view_save(struct state *s, struct bar_view *v) {
     v->out_h = s->out_h;
     v->configured = s->configured;
     v->bar_y = s->bar_y;
+    v->bar_x = s->bar_x;
     v->bar_visible = s->bar_visible;
     v->ptr_inside = s->ptr_inside;
     v->ptr_x = s->ptr_x;
@@ -982,24 +1093,33 @@ static void apply_layer_state(struct state *s) {
         return;
 
     double w = s->buf_w > 0 ? s->buf_w : (s->out_w > 0 ? s->out_w : 1366);
-    int input_h = (s->cfg_auto_hide && !s->bar_visible)
-        ? s->cfg_autohide_hover : BAR_H;
-    // Saat bar bawah tersembunyi, dock bisa menutupi tepi bawah layar. Pakai
-    // tepi atas bar (yang masih di atas dock) sebagai hover strip.
-    int input_y = (int)s->bar_y;
+    double h = s->buf_h > 0 ? s->buf_h : (s->out_h > 0 ? s->out_h : 768);
+    int th = bar_thickness(s);
+    int hidden = s->cfg_auto_hide && !s->bar_visible;
     struct wl_region *region = wl_compositor_create_region(s->compositor);
     if (region) {
-        wl_region_add(region, 0, input_y, (int32_t)w, input_h);
-        // Bar bawah juga bisa dipicu dari tepi bawah surface. Kalau dock
-        // menutupinya, strip di tepi atas bar tetap bisa dijangkau.
-        if (s->cfg_auto_hide && !s->bar_visible && s->cfg_bar_bottom)
-            wl_region_add(region, 0, SURFACE_H - input_h, (int32_t)w, input_h);
+        if (s->cfg_bar_vertical) {
+            int input_w = hidden ? s->cfg_autohide_hover : th;
+            int input_x = (int)s->bar_x;
+            if (hidden)
+                input_x = s->cfg_bar_bottom ? (int)w - input_w : 0;
+            wl_region_add(region, input_x, 0, input_w, (int32_t)h);
+        } else {
+            int input_h = hidden ? s->cfg_autohide_hover : th;
+            // Saat bar bawah tersembunyi, dock bisa menutupi tepi bawah
+            // layar. Pakai tepi atas bar sebagai hover strip.
+            int input_y = (int)s->bar_y;
+            wl_region_add(region, 0, input_y, (int32_t)w, input_h);
+            if (hidden && s->cfg_bar_bottom)
+                wl_region_add(region, 0, (int32_t)h - input_h,
+                              (int32_t)w, input_h);
+        }
         wl_surface_set_input_region(s->surface, region);
         wl_region_destroy(region);
     }
 
     if (s->layer_surface) {
-        int zone = 40;
+        int zone = th;
         if (s->cfg_auto_hide &&
             (!s->bar_visible || !s->cfg_autohide_push))
             zone = 0;
@@ -1091,6 +1211,70 @@ static void handle_scroll(struct state *s, double x, double y, double dy) {
     }
 }
 
+static void handle_click_vertical(struct state *s, uint32_t button, double x,
+                                  double y) {
+    struct vbar_layout V = vbar_layout_for(s);
+    if (x < 0 || x >= V.cw)
+        return;
+
+    if (y < V.top_end) {
+        if (button == BTN_LEFT)
+            toggle_sidebar(s, 0);
+        return;
+    }
+    if (y >= V.bottom_start) {
+        if (button == BTN_LEFT)
+            toggle_sidebar(s, 1);
+        return;
+    }
+    // Workspaces: 10 baris 26 px, padding 6 px di grup.
+    if (y >= V.ws_y && y < V.ws_y + V.ws_h) {
+        if (button == BTN_LEFT) {
+            int idx = (int)((y - V.ws_y - 6) / 26.0);
+            if (idx < 0) idx = 0;
+            if (idx >= NWS) idx = NWS - 1;
+            focus_workspace(s, idx + 1);
+        } else if (button == BTN_RIGHT) {
+            call_qs("search", "workspacesToggle");
+        } else if (button == BTN_BACK || button == BTN_SIDE) {
+            toggle_special_workspace();
+        }
+        return;
+    }
+    // Media: lingkaran progress di bawah resources.
+    if (y >= V.media_y - 10 && y <= V.media_y + 10) {
+        if (button == BTN_LEFT)
+            call_qs("mediaControls", "toggle");
+        else if (button == BTN_MIDDLE)
+            call_qs("mpris", "playPause");
+        else if (button == BTN_RIGHT || button == BTN_FORWARD ||
+                 button == BTN_EXTRA)
+            call_qs("mpris", "next");
+        else if (button == BTN_BACK || button == BTN_SIDE)
+            call_qs("mpris", "previous");
+        return;
+    }
+    // Jam/baterai: sama seperti sisi kanan bar horizontal.
+    if (y >= V.clock_y && y < V.clock_y + V.clock_h) {
+        if (button == BTN_LEFT)
+            toggle_sidebar(s, 1);
+    }
+}
+
+static void handle_scroll_vertical(struct state *s, double x, double y,
+                                   double dy) {
+    struct vbar_layout V = vbar_layout_for(s);
+    if (x < 0 || x >= V.cw || dy == 0)
+        return;
+    if (y < V.top_end) {
+        call_qs("brightness", dy < 0 ? "increment" : "decrement");
+    } else if (y >= V.ws_y && y < V.ws_y + V.ws_h) {
+        focus_workspace_rel(dy > 0 ? 1 : -1);
+    } else if (y >= V.bottom_start) {
+        change_volume(dy < 0 ? 1 : 0);
+    }
+}
+
 static void update_hover(struct state *s) {
     // Screenshot/testing hook; normal input is unaffected when unset.
     const char *forced = getenv("CPROTO_FORCE_POPUP");
@@ -1106,24 +1290,45 @@ static void update_hover(struct state *s) {
 
     unsigned mask = 0;
     int popup = 0;
-    double yy = s->ptr_y - s->bar_y;
-    if (s->bar_visible && s->ptr_inside && yy >= 0 && yy < BAR_H) {
-        struct bar_layout l = bar_layout_for(s);
-        double x = s->ptr_x;
-        if (x < l.gx)
-            mask |= 1;
-        else if (x >= l.rg_group + l.side_w)
-            mask |= 2;
+    if (s->bar_visible && s->ptr_inside) {
+        if (s->cfg_bar_vertical) {
+            struct vbar_layout V = vbar_layout_for(s);
+            double x = s->ptr_x - s->bar_x - bar_gap(s);
+            double y = s->ptr_y;
+            if (x >= 0 && x < V.cw) {
+                if (y < V.top_end)
+                    mask |= 1;
+                else if (y >= V.bottom_start)
+                    mask |= 2;
 
-        if (x >= l.gx && s->resources_w > 8 &&
-            x < l.gx + s->resources_w + 9)
-            popup = 2;      // resources
-        else if (l.form < BAR_FORM_HELLA_SHORT &&
-                 x >= l.rg_group + l.side_w - 72 &&
-                 x < l.rg_group + l.side_w - 24)
-            popup = 3;      // battery
-        else if (x >= l.rg_group && x < l.rg_group + l.side_w)
-            popup = 1;      // clock
+                if (y >= V.res_y && y < V.res_y + V.res_h)
+                    popup = 2;      // resources
+                else if (y >= V.bat_y && y < V.bat_y + V.bat_h)
+                    popup = 3;      // battery
+                else if (y >= V.clock_y && y < V.clock_y + V.clock_h)
+                    popup = 1;      // clock
+            }
+        } else {
+            double yy = s->ptr_y - s->bar_y - bar_gap(s);
+            if (yy >= 0 && yy < BAR_H) {
+                struct bar_layout l = bar_layout_for(s);
+                double x = s->ptr_x;
+                if (x < l.gx)
+                    mask |= 1;
+                else if (x >= l.rg_group + l.side_w)
+                    mask |= 2;
+
+                if (x >= l.gx && s->resources_w > 8 &&
+                    x < l.gx + s->resources_w + 9)
+                    popup = 2;      // resources
+                else if (l.form < BAR_FORM_HELLA_SHORT &&
+                         x >= l.rg_group + l.side_w - 72 &&
+                         x < l.rg_group + l.side_w - 24)
+                    popup = 3;      // battery
+                else if (x >= l.rg_group && x < l.rg_group + l.side_w)
+                    popup = 1;      // clock
+            }
+        }
     }
     if (mask != s->hover_mask || popup != s->popup) {
         s->hover_mask = mask;
@@ -1622,6 +1827,23 @@ static void popup_row_follow(cairo_t *cr, double x, double cy,
     }
 }
 
+/* Popup untuk bar vertical diletakkan di samping bar, bukan di bawah/atas. */
+static int popup_vertical_rect(struct state *s, double w, double h,
+                               double anchor_y, double *x, double *y) {
+    if (!s->cfg_bar_vertical)
+        return 0;
+    struct vbar_layout V = vbar_layout_for(s);
+    *x = s->cfg_bar_bottom ? V.x - w - 5 : V.x + V.w + 5;
+    *y = anchor_y - h / 2.0;
+    if (*x < 10) *x = 10;
+    if (*x + w > (s->buf_w > 0 ? s->buf_w : VERTICAL_SURFACE_W) - 10)
+        *x = (s->buf_w > 0 ? s->buf_w : VERTICAL_SURFACE_W) - w - 10;
+    if (*y < 10) *y = 10;
+    if (*y + h > V.h - 10) *y = V.h - h - 10;
+    if (*y < 10) *y = 10;
+    return 1;
+}
+
 static void draw_popups(struct state *s, cairo_t *cr, int above) {
     if (s->popup == 0)
         return;
@@ -1702,12 +1924,16 @@ static void draw_popups(struct state *s, cairo_t *cr, int above) {
         double w = content_w + 22;
         // The RAM/Swap columns have three rows; a CPU-only card is shorter.
         double h = (show_mem || show_swap) ? 120 : 70;
-        struct bar_layout l = bar_layout_for(s);
-        double center = l.gx + 70.5 + (s->resources_w - 110.0) / 2.0;
-        double x = center - w / 2.0;
-        if (x < 10) x = 10;
-        if (x + w > l.w - 10) x = l.w - w - 10;
-        double y = above ? -50.0 - h : 50.0;
+        double x, y;
+        struct vbar_layout V = vbar_layout_for(s);
+        if (!popup_vertical_rect(s, w, h, V.res_y + V.res_h / 2.0, &x, &y)) {
+            struct bar_layout l = bar_layout_for(s);
+            double center = l.gx + 70.5 + (s->resources_w - 110.0) / 2.0;
+            x = center - w / 2.0;
+            if (x < 10) x = 10;
+            if (x + w > l.w - 10) x = l.w - w - 10;
+            y = above ? -50.0 - h : 50.0;
+        }
         draw_popup_card(cr, x, y, w, h);
         double cx = x + 10;
         if (show_mem) {
@@ -1742,16 +1968,20 @@ static void draw_popups(struct state *s, cairo_t *cr, int above) {
         double h = 110 + (s->todo_lines - 1) * 19;
         if (h < 110)
             h = 110;
-        struct bar_layout l = bar_layout_for(s);
-        double clock_cx = l.form == BAR_FORM_FULL
-            ? l.gx + 806.5
-            : l.rg_group + (l.form == BAR_FORM_SHORT
-                            ? (l.side_w - 34.0) / 2.0
-                            : l.side_w / 2.0);
-        double x = clock_cx - w / 2.0;
-        if (x < 10) x = 10;
-        if (x + w > l.w - 10) x = l.w - w - 10;
-        double y = above ? -50.0 - h : 50.0;
+        double x, y;
+        struct vbar_layout V = vbar_layout_for(s);
+        if (!popup_vertical_rect(s, w, h, V.clock_y + V.clock_h / 2.0, &x, &y)) {
+            struct bar_layout l = bar_layout_for(s);
+            double clock_cx = l.form == BAR_FORM_FULL
+                ? l.gx + 806.5
+                : l.rg_group + (l.form == BAR_FORM_SHORT
+                                ? (l.side_w - 34.0) / 2.0
+                                : l.side_w / 2.0);
+            x = clock_cx - w / 2.0;
+            if (x < 10) x = 10;
+            if (x + w > l.w - 10) x = l.w - w - 10;
+            y = above ? -50.0 - h : 50.0;
+        }
         draw_popup_card(cr, x, y, w, h);
         double cx = x + 10, right = x + w - 10;
         popup_header(cr, cx, y + 19.5, "calendar_month", s->clock_long_date);
@@ -1822,11 +2052,15 @@ static void draw_popups(struct state *s, cairo_t *cr, int above) {
     double h = 116;
     if (!show_time) h -= 24.5;
     if (!show_rate) h -= 24.5;
-    struct bar_layout l = bar_layout_for(s);
-    double x = l.rg_group + l.side_w - 20.0 - w / 2.0;
-    if (x < 10) x = 10;
-    if (x + w > l.w - 10) x = l.w - w - 10;
-    double y = above ? -50.0 - h : 50.0;
+    double x, y;
+    struct vbar_layout V = vbar_layout_for(s);
+    if (!popup_vertical_rect(s, w, h, V.bat_y + V.bat_h / 2.0, &x, &y)) {
+        struct bar_layout l = bar_layout_for(s);
+        x = l.rg_group + l.side_w - 20.0 - w / 2.0;
+        if (x < 10) x = 10;
+        if (x + w > l.w - 10) x = l.w - w - 10;
+        y = above ? -50.0 - h : 50.0;
+    }
     draw_popup_card(cr, x, y, w, h);
     double cx = x + 10, right = x + w - 10;
     popup_header(cr, cx, y + 18.5, "battery_android_full", "Baterai");
@@ -2199,6 +2433,10 @@ static void read_config(struct state *s) {
         s->cfg_autohide_hover = 2;
         s->cfg_autohide_push = 0;
         s->cfg_bar_bottom = 0;
+        s->cfg_bar_vertical = 0;
+        s->cfg_corner_style = 0;
+        s->cfg_show_background = 1;
+        s->cfg_borderless = 0;
         s->cfg_loaded = 1;
     }
 
@@ -2210,6 +2448,11 @@ static void read_config(struct state *s) {
     int old_mw = s->cfg_mem_warn, old_cw = s->cfg_cpu_warn;
     int old_sw = s->cfg_swap_warn, old_blow = s->cfg_battery_low;
     int old_hide = s->cfg_auto_hide;
+    int old_bottom = s->cfg_bar_bottom;
+    int old_vertical = s->cfg_bar_vertical;
+    int old_corner = s->cfg_corner_style;
+    int old_bg = s->cfg_show_background;
+    int old_border = s->cfg_borderless;
 
     s->cfg_show_memory = dots_config_bool(&s->cfg, "bar.resources.showMemory", 1);
     s->cfg_show_cpu = dots_config_bool(&s->cfg, "bar.resources.showCpu", 1);
@@ -2224,6 +2467,12 @@ static void read_config(struct state *s) {
     s->cfg_autohide_hover = dots_config_int(&s->cfg, "bar.autoHide.hoverRegionWidth", 2);
     s->cfg_autohide_push = dots_config_bool(&s->cfg, "bar.autoHide.pushWindows", 0);
     s->cfg_bar_bottom = dots_config_bool(&s->cfg, "bar.bottom", 0);
+    s->cfg_bar_vertical = dots_config_bool(&s->cfg, "bar.vertical", 0);
+    s->cfg_corner_style = dots_config_int(&s->cfg, "bar.cornerStyle", 0);
+    if (s->cfg_corner_style < 0 || s->cfg_corner_style > 2)
+        s->cfg_corner_style = 0;
+    s->cfg_show_background = dots_config_bool(&s->cfg, "bar.showBackground", 1);
+    s->cfg_borderless = dots_config_bool(&s->cfg, "bar.borderless", 0);
     if (s->cfg_autohide_hover < 1)
         s->cfg_autohide_hover = 1;
     if (s->cfg_autohide_hover > BAR_H)
@@ -2234,6 +2483,15 @@ static void read_config(struct state *s) {
         old_cw != s->cfg_cpu_warn || old_sw != s->cfg_swap_warn ||
         old_blow != s->cfg_battery_low || old_hide != s->cfg_auto_hide)
         s->redraw = 1;
+    if (old_bottom != s->cfg_bar_bottom ||
+        old_vertical != s->cfg_bar_vertical ||
+        old_corner != s->cfg_corner_style) {
+        view_recreate_surfaces(s);
+        s->redraw = 1;
+    } else if (old_bg != s->cfg_show_background ||
+               old_border != s->cfg_borderless) {
+        s->redraw = 1;
+    }
 
     // Enabling an indicator starts its data source immediately instead of
     // waiting for the next 10-second refresh tick.
@@ -2350,6 +2608,267 @@ static void load_todos(struct state *s) {
         s->redraw = 1;
 }
 
+static void draw_battery_vertical(cairo_t *cr, double cx, double y,
+                                  double pct, int charging, int low) {
+    if (getenv("CPROTO_FORCE_CHARGING"))
+        charging = 1;
+    struct rgba fill = (low && !charging) ? C_ERROR : C_ON_SECONDARY;
+    double w = 20, h = 36;
+    cairo_push_group(cr);
+    rounded_rect(cr, cx - w / 2.0, y, w, h, 10);
+    cairo_set_source_rgba(cr, fill.r, fill.g, fill.b, 0.5);
+    cairo_fill(cr);
+
+    cairo_save(cr);
+    rounded_rect(cr, cx - w / 2.0, y, w, h, 10);
+    cairo_clip(cr);
+    cairo_rectangle(cr, cx - w / 2.0, y + h * (1.0 - pct), w, h * pct);
+    cairo_set_source_rgba(cr, fill.r, fill.g, fill.b, 1.0);
+    cairo_fill(cr);
+    cairo_restore(cr);
+
+    char text[8];
+    snprintf(text, sizeof text, "%d", (int)lround(pct * 100));
+    cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OUT);
+    cairo_set_source_rgba(cr, 0, 0, 0, 1);
+    if (charging && pct < 0.999)
+        draw_icon_mid(cr, "bolt", 12, 1, cx, y + 11,
+                      (struct rgba){0, 0, 0, 1});
+    PangoLayout *l = make_layout(cr, text, 13, "wght=600,opsz=100", 0);
+    int tw, th;
+    pango_layout_get_pixel_size(l, &tw, &th);
+    cairo_move_to(cr, cx - tw / 2.0, y + h - 4 - th);
+    pango_cairo_show_layout(cr, l);
+    g_object_unref(l);
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    cairo_pop_group_to_source(cr);
+    cairo_paint(cr);
+}
+
+static void draw_vertical(struct state *s, cairo_t *cr) {
+    struct vbar_layout V = vbar_layout_for(s);
+    const double H = V.h;
+    const double X = V.x;
+    const double W = V.w;
+    const double gap = bar_gap(s);
+    const double cx = V.cx0 + V.cw / 2.0;
+
+    if (s->cfg_show_background) {
+        cairo_set_source_rgba(cr, C_LAYER0.r, C_LAYER0.g, C_LAYER0.b, C_LAYER0.a);
+        if (s->cfg_corner_style == 1) {
+            rounded_rect(cr, X + BAR_GAP, BAR_GAP, W - BAR_GAP * 2,
+                         H - BAR_GAP * 2, WINDOW_ROUNDING);
+            cairo_fill(cr);
+            rounded_rect(cr, X + BAR_GAP + 0.5, BAR_GAP + 0.5,
+                         W - BAR_GAP * 2 - 1, H - BAR_GAP * 2 - 1,
+                         WINDOW_ROUNDING - 0.5);
+            cairo_set_line_width(cr, 1);
+            cairo_set_source_rgba(cr, C_POPUP_BORDER.r, C_POPUP_BORDER.g,
+                                  C_POPUP_BORDER.b, 1);
+            cairo_stroke(cr);
+        } else {
+            cairo_rectangle(cr, X, 0, W, H);
+            cairo_fill(cr);
+            if (s->cfg_corner_style == 0) {
+                double r = SCREEN_ROUNDING;
+                cairo_set_source_rgba(cr, C_LAYER0.r, C_LAYER0.g,
+                                      C_LAYER0.b, C_LAYER0.a);
+                if (s->cfg_bar_bottom) {
+                    hug_corner(cr, X - r, 0, r, 1);       // top-right
+                    cairo_fill(cr);
+                    hug_corner(cr, X - r, H - r, r, 3);   // bottom-right
+                    cairo_fill(cr);
+                } else {
+                    hug_corner(cr, X + W, 0, r, 0);       // top-left
+                    cairo_fill(cr);
+                    hug_corner(cr, X + W, H - r, r, 2);   // bottom-left
+                    cairo_fill(cr);
+                }
+            }
+        }
+    }
+
+    // Background grup: Resources + media, Workspaces, Clock + battery.
+    if (!s->cfg_borderless) {
+        cairo_set_source_rgba(cr, C_LAYER1.r, C_LAYER1.g, C_LAYER1.b, C_LAYER1.a);
+        rounded_rect(cr, V.cx0 + 4, V.res_y, V.cw - 8, V.res_h, 12);
+        cairo_fill(cr);
+        rounded_rect(cr, V.cx0 + 4, V.ws_y, V.cw - 8, V.ws_h, 12);
+        cairo_fill(cr);
+        rounded_rect(cr, V.cx0 + 4, V.clock_y, V.cw - 8, V.clock_h, 12);
+        cairo_fill(cr);
+    }
+
+    // Tombol sidebar kiri di section atas.
+    {
+        double by = gap + 13.25;
+        int hovered = (s->hover_mask & 1) != 0;
+        if (s->lb_open || hovered) {
+            struct rgba bg = s->lb_open
+                ? (hovered ? C_SECONDARY_HV : C_SECONDARY)
+                : C_LAYER1_HOVER;
+            cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, bg.a);
+            rounded_rect(cr, cx - 14.75, by, 29.5, 29.5, 14.75);
+            cairo_fill(cr);
+        }
+        if (s->spark) {
+            double sz = 19.5;
+            cairo_save(cr);
+            cairo_translate(cr, cx - sz / 2.0, by + 14.75 - sz / 2.0);
+            double sc = sz / cairo_image_surface_get_width(s->spark);
+            cairo_scale(cr, sc, sc);
+            cairo_set_source_rgba(cr, C_ON_LAYER0.r, C_ON_LAYER0.g,
+                                  C_ON_LAYER0.b, 1);
+            cairo_mask_surface(cr, s->spark, 0, 0);
+            cairo_restore(cr);
+        }
+    }
+
+    // Resources: satu lingkaran per indikator yang aktif.
+    double ry = V.res_y + 8 + 9;
+    if (s->cfg_show_memory) {
+        draw_badge(cr, cx, ry, s->mem_pct, "memory",
+                   s->mem_pct * 100 >= s->cfg_mem_warn);
+        ry += 28;
+    }
+    if (s->cfg_show_swap) {
+        draw_badge(cr, cx, ry, s->swap_pct, "swap_horiz",
+                   s->swap_pct * 100 >= s->cfg_swap_warn);
+        ry += 28;
+    }
+    if (s->cfg_show_cpu) {
+        draw_badge(cr, cx, ry, s->cpu_pct, "planner_review",
+                   s->cpu_pct * 100 >= s->cfg_cpu_warn);
+        ry += 28;
+    }
+
+    double progress = 0;
+    if (s->media_len > 0)
+        progress = s->media_pos / s->media_len;
+    if (progress < 0) progress = 0;
+    if (progress > 1) progress = 1;
+    int playing = strcmp(s->media_status, "Playing") == 0;
+    draw_badge(cr, cx, V.media_y, progress,
+               playing ? "pause" : "music_note", 0);
+
+    // Workspaces vertical.
+    int active_idx = -1;
+    if (s->active_ws >= 1 && s->active_ws <= NWS)
+        active_idx = s->active_ws - 1;
+    double ws0 = V.ws_y + 6;
+    for (int i = 0; i < NWS; i++) {
+        if (!s->occupied[i])
+            continue;
+        int prev = i > 0 && s->occupied[i - 1];
+        int next = i < NWS - 1 && s->occupied[i + 1];
+        double len = 26.0 * (1 + 0.5 * prev + 0.5 * next);
+        double oy = ws0 + i * 26.0 - 13.0 * prev;
+        rounded_rect(cr, cx - 13, oy, 26, len, 13);
+        cairo_set_source_rgba(cr, C_OCCUPIED.r, C_OCCUPIED.g, C_OCCUPIED.b,
+                              C_OCCUPIED.a);
+        cairo_fill(cr);
+    }
+    if (active_idx >= 0) {
+        cairo_set_source_rgba(cr, C_PRIMARY.r, C_PRIMARY.g, C_PRIMARY.b, 1);
+        rounded_rect(cr, cx - 11, ws0 + active_idx * 26.0 + 2, 22, 22, 11);
+        cairo_fill(cr);
+    }
+    for (int i = 0; i < NWS; i++) {
+        double cy = ws0 + i * 26.0 + 13;
+        if (s->occupied[i]) {
+            if (s->ws_icon[i]) {
+                draw_app_icon(cr, s->ws_icon[i], cx - 9, cy - 9, 18);
+            } else {
+                cairo_set_source_rgba(cr, C_ON_SECONDARY.r, C_ON_SECONDARY.g,
+                                      C_ON_SECONDARY.b, 1);
+                cairo_arc(cr, cx, cy, 2.34, 0, 2 * M_PI);
+                cairo_fill(cr);
+            }
+        } else {
+            cairo_set_source_rgba(cr, C_DOT.r, C_DOT.g, C_DOT.b, C_DOT.a);
+            cairo_arc(cr, cx, cy, 2.34, 0, 2 * M_PI);
+            cairo_fill(cr);
+        }
+    }
+
+    // Jam: token waktu ditumpuk per baris, lalu short date kecil, seperti
+    // VerticalClockWidget.qml (split /[: ]/ lalu padStart(2)).
+    {
+        char tokens[4][16];
+        int nt = 0;
+        const char *p = s->clock_time;
+        while (*p && nt < 4) {
+            while (*p == ':' || *p == ' ')
+                p++;
+            if (!*p)
+                break;
+            size_t n = 0;
+            while (p[n] && p[n] != ':' && p[n] != ' ' && n < sizeof tokens[0] - 1)
+                n++;
+            memcpy(tokens[nt], p, n);
+            tokens[nt][n] = 0;
+            // Numeric tokens dipad menjadi 2 digit; AM/PM dibiarkan.
+            if (n == 1 && tokens[nt][0] >= '0' && tokens[nt][0] <= '9') {
+                tokens[nt][0] = '0';
+                tokens[nt][1] = p[0];
+                tokens[nt][2] = 0;
+            }
+            nt++;
+            p += n;
+        }
+        double ty = V.clock_y + 8;
+        double line_y = ty + 6;
+        for (int i = 0; i < nt; i++) {
+            int is_ampm = strcasestr(tokens[i], "am") || strcasestr(tokens[i], "pm");
+            int fs = is_ampm ? 10 : 17;
+            draw_text_centered(cr, tokens[i], fs, VAR_MAIN, cx, line_y, C_ON_LAYER1);
+            line_y += is_ampm ? 12 : 15;
+        }
+        const char *short_date = s->clock_date;
+        const char *comma = strrchr(short_date, ',');
+        if (comma && comma[1] == ' ')
+            short_date = comma + 2;
+        draw_text_centered(cr, short_date, 10, VAR_MAIN, cx, ty + 42,
+                           C_SUBTEXT);
+    }
+
+    if (s->battery_pct > 0 || s->battery_full)
+        draw_battery_vertical(cr, cx, V.bat_y, s->battery_pct / 100.0,
+                              s->battery_charging,
+                              s->battery_pct <= s->cfg_battery_low);
+
+    // Indikator kanan di bawah: bell, wifi, bluetooth.
+    {
+        int rhover = (s->hover_mask & 2) != 0;
+        if (s->rb_open || rhover) {
+            struct rgba bg = s->rb_open
+                ? (rhover ? C_SECONDARY_HV : C_SECONDARY)
+                : C_LAYER1_HOVER;
+            cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, bg.a);
+            rounded_rect(cr, cx - 14.75, V.right_y, 29.5, V.right_h, 14.75);
+            cairo_fill(cr);
+        }
+        struct rgba icon_col = s->rb_open ? C_ON_SECONDARY : C_ON_LAYER0;
+        double iy = V.right_y + 16;
+        if (s->bell_visible) {
+            draw_icon_mid(cr, s->notif_silent ? "notifications_paused" : "notifications",
+                          19, 0, cx, iy, icon_col);
+            if (!s->notif_silent && s->notif_unread > 0) {
+                cairo_set_source_rgba(cr, C_ON_LAYER0.r, C_ON_LAYER0.g,
+                                      C_ON_LAYER0.b, C_ON_LAYER0.a);
+                cairo_arc(cr, cx + 4.5, iy - 4.5, 3.5, 0, 2 * M_PI);
+                cairo_fill(cr);
+            }
+            iy += 25;
+        }
+        draw_icon_mid(cr, "signal_wifi_4_bar", 19, 0, cx, iy, icon_col);
+        iy += 25;
+        draw_icon_mid(cr, "bluetooth", 19, 0, cx, iy, icon_col);
+    }
+
+    draw_popups(s, cr, s->cfg_bar_bottom);
+}
+
 static void draw(struct state *s) {
     if (!s->configured || !s->data || !s->buffer)
         return;
@@ -2376,13 +2895,52 @@ static void draw(struct state *s) {
         return;
     }
 
+    if (s->cfg_bar_vertical) {
+        draw_vertical(s, cr);
+        cairo_destroy(cr);
+        cairo_surface_flush(cs);
+        wl_surface_attach(s->surface, s->buffer, 0, 0);
+        wl_surface_damage_buffer(s->surface, 0, 0, s->buf_w, s->buf_h);
+        wl_surface_commit(s->surface);
+        cairo_surface_destroy(cs);
+        return;
+    }
+
     if (s->bar_y > 0)
         cairo_translate(cr, 0, s->bar_y);
 
-    // Bar background (cornerStyle 0: full width, square).
-    cairo_set_source_rgba(cr, C_LAYER0.r, C_LAYER0.g, C_LAYER0.b, C_LAYER0.a);
-    cairo_rectangle(cr, 0, 0, W, BAR_H);
-    cairo_fill(cr);
+    // Background horizontal. cornerStyle 0 = hug penuh + dekorasi sudut,
+    // 1 = float dengan margin 5 px, 2 = plain persegi penuh.
+    if (s->cfg_show_background) {
+        cairo_set_source_rgba(cr, C_LAYER0.r, C_LAYER0.g, C_LAYER0.b, C_LAYER0.a);
+        if (s->cfg_corner_style == 1) {
+            rounded_rect(cr, BAR_GAP, BAR_GAP, W - BAR_GAP * 2,
+                         BAR_H, WINDOW_ROUNDING);
+            cairo_fill(cr);
+            rounded_rect(cr, BAR_GAP + 0.5, BAR_GAP + 0.5,
+                         W - BAR_GAP * 2 - 1, BAR_H - 1,
+                         WINDOW_ROUNDING - 0.5);
+            cairo_set_line_width(cr, 1);
+            cairo_set_source_rgba(cr, C_POPUP_BORDER.r, C_POPUP_BORDER.g,
+                                  C_POPUP_BORDER.b, 1);
+            cairo_stroke(cr);
+        } else {
+            cairo_rectangle(cr, 0, 0, W, BAR_H);
+            cairo_fill(cr);
+            if (s->cfg_corner_style == 0) {
+                double r = SCREEN_ROUNDING;
+                double yy = s->cfg_bar_bottom ? -r : BAR_H;
+                cairo_set_source_rgba(cr, C_LAYER0.r, C_LAYER0.g,
+                                      C_LAYER0.b, C_LAYER0.a);
+                hug_corner(cr, 0, yy, r, 0);
+                cairo_fill(cr);
+                hug_corner(cr, W - r, yy, r, 1);
+                cairo_fill(cr);
+            }
+        }
+    }
+    if (s->cfg_corner_style == 1)
+        cairo_translate(cr, 0, BAR_GAP);
 
     const double lg_group = L.lg_group;            // left group
     const double wg_group = L.wg_group;            // workspaces group
@@ -2391,14 +2949,17 @@ static void draw(struct state *s) {
     const double wg = L.wg;
     const double rg = L.rg;
 
-    // Group backgrounds.
-    cairo_set_source_rgba(cr, C_LAYER1.r, C_LAYER1.g, C_LAYER1.b, C_LAYER1.a);
-    rounded_rect(cr, lg_group, 4, L.side_w, 32, 12);
-    cairo_fill(cr);
-    rounded_rect(cr, wg_group, 4, 270, 32, 12);
-    cairo_fill(cr);
-    rounded_rect(cr, rg_group, 4, L.side_w, 32, 12);
-    cairo_fill(cr);
+    // Group backgrounds. borderless menyembunyikan kartu grup, sama seperti
+    // BarGroup.qml; konten tetap digambar.
+    if (!s->cfg_borderless) {
+        cairo_set_source_rgba(cr, C_LAYER1.r, C_LAYER1.g, C_LAYER1.b, C_LAYER1.a);
+        rounded_rect(cr, lg_group, 4, L.side_w, 32, 12);
+        cairo_fill(cr);
+        rounded_rect(cr, wg_group, 4, 270, 32, 12);
+        cairo_fill(cr);
+        rounded_rect(cr, rg_group, 4, L.side_w, 32, 12);
+        cairo_fill(cr);
+    }
 
     // Left sidebar button background (behind the spark icon).
     // The real bar shows it whenever the pointer is anywhere in the left
@@ -2685,13 +3246,24 @@ static void ls_configure(void *data, struct zwlr_layer_surface_v1 *ls,
     struct state *s = v->s;
     view_load(s, v);
     zwlr_layer_surface_v1_ack_configure(ls, serial);
-    if (w == 0)
-        w = s->out_w > 0 ? (uint32_t)s->out_w : 1366;
-    if (h == 0)
-        h = SURFACE_H;
+    int th = bar_thickness(s);
+    if (s->cfg_bar_vertical) {
+        if (w == 0)
+            w = VERTICAL_SURFACE_W;
+        if (h == 0)
+            h = s->out_h > 0 ? (uint32_t)s->out_h : 768;
+        s->bar_y = 0;
+        s->bar_x = s->cfg_bar_bottom ? (double)w - th : 0;
+    } else {
+        if (w == 0)
+            w = s->out_w > 0 ? (uint32_t)s->out_w : 1366;
+        if (h == 0)
+            h = SURFACE_H;
+        s->bar_x = 0;
+        s->bar_y = s->cfg_bar_bottom ? (double)h - th : 0;
+    }
     if ((int)w != s->buf_w || (int)h != s->buf_h)
         create_buffer(s, (int)w, (int)h);
-    s->bar_y = s->cfg_bar_bottom ? (double)h - BAR_H : 0;
 
     // Only the visible bar strip is interactive; the shadow strip below
     // stays click-through.
@@ -2774,18 +3346,70 @@ static void view_create_surface(struct bar_view *v) {
         return;
 
     zwlr_layer_surface_v1_add_listener(v->layer_surface, &ls_listener, v);
-    zwlr_layer_surface_v1_set_size(v->layer_surface, 0, SURFACE_H);
-    zwlr_layer_surface_v1_set_anchor(
-        v->layer_surface,
-        (s->cfg_bar_bottom ? ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
-                           : ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) |
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    zwlr_layer_surface_v1_set_exclusive_zone(v->layer_surface, 40);
+    int th = bar_thickness(s);
+    if (s->cfg_bar_vertical) {
+        zwlr_layer_surface_v1_set_size(v->layer_surface, VERTICAL_SURFACE_W, 0);
+        zwlr_layer_surface_v1_set_anchor(
+            v->layer_surface,
+            (s->cfg_bar_bottom ? ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT
+                               : ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
+        v->bar_y = 0;
+        v->bar_x = s->cfg_bar_bottom ? VERTICAL_SURFACE_W - th : 0;
+    } else {
+        zwlr_layer_surface_v1_set_size(v->layer_surface, 0, SURFACE_H);
+        zwlr_layer_surface_v1_set_anchor(
+            v->layer_surface,
+            (s->cfg_bar_bottom ? ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
+                               : ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+        v->bar_x = 0;
+        v->bar_y = s->cfg_bar_bottom ? SURFACE_H - th : 0;
+    }
+    zwlr_layer_surface_v1_set_exclusive_zone(v->layer_surface, th);
     zwlr_layer_surface_v1_set_keyboard_interactivity(
         v->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
-    v->bar_y = s->cfg_bar_bottom ? SURFACE_H - BAR_H : 0;
     wl_surface_commit(v->surface);
+}
+
+static void view_destroy_surface(struct bar_view *v) {
+    if (!v)
+        return;
+    struct state *s = v->s;
+    if (s->ptr_view == v) {
+        s->ptr_view = NULL;
+        s->ptr_inside = 0;
+    }
+    if (v->layer_surface) {
+        zwlr_layer_surface_v1_destroy(v->layer_surface);
+        v->layer_surface = NULL;
+    }
+    if (v->surface) {
+        wl_surface_destroy(v->surface);
+        v->surface = NULL;
+    }
+    if (v->buffer) {
+        wl_buffer_destroy(v->buffer);
+        v->buffer = NULL;
+    }
+    if (v->data) {
+        munmap(v->data, (size_t)v->buf_w * v->buf_h * 4);
+        v->data = NULL;
+    }
+    v->buf_w = 0;
+    v->buf_h = 0;
+    v->configured = 0;
+}
+
+static void view_recreate_surfaces(struct state *s) {
+    for (struct bar_view *v = s->views; v; v = v->next) {
+        if (!v->surface)
+            continue;
+        view_destroy_surface(v);
+        view_create_surface(v);
+    }
 }
 
 static void view_maybe_create(struct state *s) {
@@ -2944,7 +3568,12 @@ static void ptr_button(void *data, struct wl_pointer *pointer, uint32_t serial,
     view_load(s, v);
     s->ptr_inside = 1;
     s->last_pointer_ms = mono_ms();
-    handle_click(s, button, s->ptr_x, s->ptr_y - s->bar_y);
+    if (s->cfg_bar_vertical)
+        handle_click_vertical(s, button,
+                              s->ptr_x - s->bar_x - bar_gap(s), s->ptr_y);
+    else
+        handle_click(s, button, s->ptr_x,
+                     s->ptr_y - s->bar_y - bar_gap(s));
     view_save(s, v);
 }
 
@@ -2956,7 +3585,13 @@ static void ptr_axis(void *data, struct wl_pointer *pointer, uint32_t time,
     if (!v || axis != WL_POINTER_AXIS_VERTICAL_SCROLL)
         return;
     view_load(s, v);
-    handle_scroll(s, s->ptr_x, s->ptr_y - s->bar_y, wl_fixed_to_double(value));
+    if (s->cfg_bar_vertical)
+        handle_scroll_vertical(s,
+                               s->ptr_x - s->bar_x - bar_gap(s), s->ptr_y,
+                               wl_fixed_to_double(value));
+    else
+        handle_scroll(s, s->ptr_x, s->ptr_y - s->bar_y - bar_gap(s),
+                      wl_fixed_to_double(value));
     view_save(s, v);
 }
 
@@ -3060,7 +3695,9 @@ int main(void) {
     refresh_theme(&s);
     if (s.cfg_auto_hide)
         s.bar_visible = 0;
-    s.bar_y = s.cfg_bar_bottom ? SURFACE_H - BAR_H : 0;
+    s.bar_y = s.cfg_bar_bottom ? SURFACE_H - bar_thickness(&s) : 0;
+    s.bar_x = s.cfg_bar_vertical ?
+        (s.cfg_bar_bottom ? VERTICAL_SURFACE_W - bar_thickness(&s) : 0) : 0;
 
     s.icon_kitty = load_png("kitty.png");
     s.icon_brave = load_png("brave.png");

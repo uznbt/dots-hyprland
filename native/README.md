@@ -9,8 +9,9 @@ Status: **Fase 1 — bar native multi-output sudah bisa dijalankan, belum menjad
 - `dots-bar`: bar Wayland C + cairo/pango, hasil port dari `docs/cbar`.
   Satu proses membuat satu layer surface per output, layout dihitung dari
   lebar masing-masing output, mendukung bentuk penuh/shortened (≤1200 px dan
-  ≤1000 px), `screenList`, hotplug, auto-hide, bar bawah, dan warna Material
-  You dari `generated/colors.json`.
+  ≤1000 px), bar horizontal/vertical, corner style hug/float/plain,
+  `screenList`, hotplug, auto-hide, bar bawah, dan warna Material You dari
+  `generated/colors.json`.
 - `dotsd`: daemon IPC Unix socket untuk config dan delegasi aksi panel.
 - `dots-ctl`: klien CLI (`ping`, `status`, `config-get`, `config-reload`, `panel`).
 - `dots-dispatch`: dispatcher aksi dengan fallback `qs`, untuk migrasi keybind.
@@ -97,7 +98,9 @@ langsung sehingga fitur harian tidak mati.
 
 ## Batasan saat ini
 
-- Belum ada bentuk vertical; bentuk shortened sudah mengikuti ambang QML.
+- Tray StatusNotifierItem belum ada.
+- Popup bar (jam/resource/baterai) masih non-interaktif; popup vertical
+  ditempatkan di samping bar, bukan jendela terpisah.
 - Interaksi sidebar/media masih didelegasikan ke Quickshell lewat `dotsd`.
 - `dots-session` masih supervisor tipis; belum ada health-check otomatis,
   restart, atau watchdog proses.
@@ -128,13 +131,13 @@ Bar native satu output 1366×768:
 
 | Metrik | Nilai |
 | --- | ---: |
-| PSS | 11,0 MB |
-| RSS | 32,1 MB |
-| Anonymous | 6,7 MB |
-| Private dirty | 6,8 MB |
+| PSS | 11,3 MB |
+| RSS | 41,4 MB |
+| Anonymous | 6,4 MB |
+| Private dirty | 6,4 MB |
 
 Dengan dua output (1366×768 + headless 1920×1080) PSS naik ke sekitar
-12,9 MB karena ada buffer kedua. `dotsd` (idle, config sudah dimuat): PSS
+12,5 MB karena ada buffer kedua. `dotsd` (idle, config sudah dimuat): PSS
 sekitar 0,4 MB.
 
 Angka ini hanya bar, bukan pengganti total shell. Target dan urutan lengkap
