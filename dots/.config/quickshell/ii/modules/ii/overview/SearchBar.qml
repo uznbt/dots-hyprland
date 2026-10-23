@@ -107,7 +107,7 @@ RowLayout {
         Layout.bottomMargin: 4
         Layout.rightMargin: 2
         toggled: GlobalStates.overviewAppsVisible
-        onClicked: GlobalStates.overviewAppsVisible = !GlobalStates.overviewAppsVisible
+        onClicked: Config.options.overview.showApps = !Config.options.overview.showApps
         text: "apps"
 
         StyledToolTip {

@@ -436,6 +436,7 @@ Singleton {
 
             property JsonObject overview: JsonObject {
                 property bool enable: true
+                property bool showApps: true
                 property real scale: 0.18 // Relative to screen size
                 property real rows: 2
                 property real columns: 5

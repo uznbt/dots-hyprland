@@ -23,7 +23,7 @@ Singleton {
     property bool nativeOsdActive: false
     property bool oskOpen: false
     property bool overlayOpen: false
-    property bool overviewAppsVisible: true
+    property bool overviewAppsVisible: Config.options.overview.showApps
     property bool overviewOpen: false
     property bool regionSelectorOpen: false
     // Region selector arguments. Kept here so the trigger (PanelStubs) can set
