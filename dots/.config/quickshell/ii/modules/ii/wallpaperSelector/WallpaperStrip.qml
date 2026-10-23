@@ -76,6 +76,7 @@ Scope {
                 color: Appearance.colors.colLayer0Base
                 border.width: 1
                 border.color: Appearance.colors.colLayer0Border
+                clip: true
                 focus: true
 
                 property var items: Wallpapers.wallpaperItems
