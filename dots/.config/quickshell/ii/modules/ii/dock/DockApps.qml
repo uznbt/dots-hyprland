@@ -20,7 +20,18 @@ Item {
 
     property Item lastHoveredButton: null
     property bool buttonHovered: false
+    property bool contextMenuOpen: false
     property bool requestDockShow: previewPopup.show
+    property var menuScreen: null
+
+    signal appContextMenuRequested(string appId, var screen)
+
+    function requestAppContextMenu(appId) {
+        previewPopup.show = false;
+        buttonHovered = false;
+        lastHoveredButton = null;
+        appContextMenuRequested(appId, menuScreen);
+    }
 
     Layout.fillHeight: true
     Layout.topMargin: Appearance.sizes.hyprlandGapsOut
@@ -64,7 +75,7 @@ Item {
         id: previewPopup
         property var appTopLevel: root.lastHoveredButton?.appToplevel
 
-        property bool shouldShow: (popupMouseArea.containsMouse || root.buttonHovered) && appTopLevel && appTopLevel.toplevels && appTopLevel.toplevels.length > 0
+        property bool shouldShow: !root.contextMenuOpen && (popupMouseArea.containsMouse || root.buttonHovered) && appTopLevel && appTopLevel.toplevels && appTopLevel.toplevels.length > 0
 
         property bool show: false
         property real cachedCenterX: 0

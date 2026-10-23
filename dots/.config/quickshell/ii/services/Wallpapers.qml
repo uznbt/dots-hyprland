@@ -26,6 +26,7 @@ Singleton {
         "jpg", "jpeg", "png", "webp", "avif", "bmp", "svg"
     ]
     property list<string> wallpapers: [] // List of absolute file paths (without file://)
+    property var wallpaperItems: [] // Image-only items for the compact wallpaper strip
     readonly property bool thumbnailGenerationRunning: thumbgenProc.running
     property real thumbnailGenerationProgress: 0
 
@@ -34,7 +35,32 @@ Singleton {
     signal thumbnailGeneratedFile(filePath: string)
 
     function load () {} // For forcing initialization
-    
+
+    function refreshWallpaperItems() {
+        const items = []
+        for (let i = 0; i < folderModel.count; i++) {
+            if (folderModel.get(i, "fileIsDir")) continue
+            const filePath = folderModel.get(i, "filePath")
+            const fileName = folderModel.get(i, "fileName") || FileUtils.fileNameForPath(filePath)
+            const extension = fileName.split(".").pop().toLowerCase()
+            if (!filePath || !root.extensions.includes(extension)) continue
+            items.push({
+                name: fileName,
+                label: FileUtils.trimFileExt(fileName),
+                path: filePath
+            })
+        }
+        root.wallpaperItems = items
+    }
+
+    // Point the strip at the folder containing the current wallpaper, so
+    // opening it shows the neighbours instead of starting somewhere else.
+    function prepareForStrip() {
+        const current = FileUtils.trimFileProtocol(Config.options?.background?.wallpaperPath ?? "")
+        const folder = current.length > 0 ? FileUtils.parentDirectory(current) : FileUtils.trimFileProtocol(root.defaultFolder)
+        if (folder.length > 0) root.setDirectory(folder)
+    }
+
     function openFallbackPicker(darkMode = Appearance.m3colors.darkmode) {
         Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--mode", darkMode ? "dark" : "light"]);
     }
@@ -129,7 +155,9 @@ Singleton {
                 const path = folderModel.get(i, "filePath") || FileUtils.trimFileProtocol(folderModel.get(i, "fileURL"))
                 if (path && path.length) root.wallpapers.push(path)
             }
+            root.refreshWallpaperItems()
         }
+        onFolderChanged: root.refreshWallpaperItems()
     }
 
     // Thumbnail generation

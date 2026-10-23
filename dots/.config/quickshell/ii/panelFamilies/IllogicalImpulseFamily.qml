@@ -54,6 +54,7 @@ Scope {
     PanelLoader { lazy: true; open: GlobalStates.screenTranslatorOpen; component: ScreenTranslator {} }
     PanelLoader { lazy: true; open: GlobalStates.sessionOpen; component: SessionScreen {} }
     PanelLoader { lazy: true; open: GlobalStates.wallpaperSelectorOpen; component: WallpaperSelector {} }
+    PanelLoader { lazy: true; open: GlobalStates.wallpaperStripOpen; component: WallpaperStrip {} }
 
     // IPC handlers + global shortcuts for the panels above.
     PanelStubs {}

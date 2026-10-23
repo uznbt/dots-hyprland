@@ -125,6 +125,12 @@ MouseArea {
                 text: "fingerprint"
                 iconSize: Appearance.font.pixelSize.hugeass
                 color: Appearance.colors.colOnSurfaceVariant
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.context.retryFingerUnlock()
+                }
             }
         }
 

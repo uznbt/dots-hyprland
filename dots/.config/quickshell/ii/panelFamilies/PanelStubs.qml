@@ -35,7 +35,19 @@ Scope {
             Wallpapers.openFallbackPicker(Appearance.m3colors.darkmode);
             return;
         }
+        if (!GlobalStates.wallpaperSelectorOpen)
+            GlobalStates.wallpaperStripOpen = false;
         GlobalStates.wallpaperSelectorOpen = !GlobalStates.wallpaperSelectorOpen;
+    }
+
+    function toggleWallpaperStrip() {
+        if (Config.options.wallpaperSelector.useSystemFileDialog) {
+            Wallpapers.openFallbackPicker(Appearance.m3colors.darkmode);
+            return;
+        }
+        if (!GlobalStates.wallpaperStripOpen)
+            GlobalStates.wallpaperSelectorOpen = false;
+        GlobalStates.wallpaperStripOpen = !GlobalStates.wallpaperStripOpen;
     }
 
     function regionOpen(action, mode) {
@@ -199,6 +211,21 @@ Scope {
         name: "wallpaperSelectorRandom"
         description: "Select random wallpaper in current folder"
         onPressed: Wallpapers.randomFromCurrentFolder()
+    }
+
+    IpcHandler {
+        target: "wallpaperStrip"
+        function toggle(): void { root.toggleWallpaperStrip() }
+        function open(): void {
+            GlobalStates.wallpaperSelectorOpen = false;
+            GlobalStates.wallpaperStripOpen = true;
+        }
+        function close(): void { GlobalStates.wallpaperStripOpen = false }
+    }
+    GlobalShortcut {
+        name: "wallpaperStripToggle"
+        description: "Toggle compact wallpaper strip"
+        onPressed: root.toggleWallpaperStrip()
     }
 
     // ── Screen translator ───────────────────────────────────────────────────

@@ -36,6 +36,7 @@ Singleton {
     property bool superDown: false
     property bool superReleaseMightTrigger: true
     property bool wallpaperSelectorOpen: false
+    property bool wallpaperStripOpen: false
     property bool workspaceShowNumbers: false
 
     onSidebarRightOpenChanged: {
