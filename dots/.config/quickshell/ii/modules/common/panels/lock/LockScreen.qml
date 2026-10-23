@@ -111,6 +111,12 @@ Scope {
         function focus(): void {
             lockContext.shouldReFocus();
         }
+        function pauseFingerprint(): void {
+            lockContext.pauseFingerprint();
+        }
+        function resumeFingerprint(): void {
+            lockContext.resumeFingerprint();
+        }
     }
 
     GlobalShortcut {

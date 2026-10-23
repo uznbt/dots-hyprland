@@ -20,6 +20,8 @@ Scope {
     property bool unlockInProgress: false
     property bool showFailure: false
     property bool fingerprintsConfigured: false
+    property bool fingerprintPaused: false
+    property int fingerprintAttempts: 0
     property var targetAction: LockContext.ActionEnum.Unlock
     property bool alsoInhibitIdle: false
 
@@ -39,6 +41,8 @@ Scope {
         root.resetTargetAction();
         root.clearText();
         root.unlockInProgress = false;
+        root.fingerprintPaused = false;
+        root.fingerprintAttempts = 0;
         stopFingerPam();
     }
 
@@ -66,9 +70,31 @@ Scope {
     }
 
     function tryFingerUnlock() {
-        if (root.fingerprintsConfigured && !fingerPam.active) {
-            fingerPam.start();
-        }
+        if (root.fingerprintPaused || !root.fingerprintsConfigured || fingerPam.active)
+            return;
+        if (root.fingerprintAttempts >= 3)
+            return;
+
+        root.fingerprintAttempts += 1;
+        fingerPam.start();
+    }
+
+    function retryFingerUnlock() {
+        root.fingerprintPaused = false;
+        root.fingerprintAttempts = 0;
+        root.tryFingerUnlock();
+    }
+
+    function pauseFingerprint() {
+        root.fingerprintPaused = true;
+        root.stopFingerPam();
+    }
+
+    function resumeFingerprint() {
+        root.fingerprintPaused = false;
+        root.fingerprintAttempts = 0;
+        if (GlobalStates.screenLocked && root.fingerprintsConfigured)
+            root.tryFingerUnlock();
     }
 
     function refreshFingerprintStatus() {
@@ -78,9 +104,17 @@ Scope {
     }
 
     function stopFingerPam() {
+        fingerRetryTimer.stop();
         if (fingerPam.active) {
             fingerPam.abort();
         }
+    }
+
+    Timer {
+        id: fingerRetryTimer
+        interval: 900
+        repeat: false
+        onTriggered: root.tryFingerUnlock()
     }
 
     Process {
@@ -92,6 +126,7 @@ Scope {
             onStreamFinished: {
                 root.fingerprintsConfigured = fingerprintOutputCollector.text.includes("Fingerprints for user");
                 if (root.fingerprintsConfigured && GlobalStates.screenLocked) {
+                    root.fingerprintAttempts = 0;
                     root.tryFingerUnlock();
                 }
             }
@@ -138,8 +173,15 @@ Scope {
             if (result == PamResult.Success) {
                 root.unlocked(root.targetAction);
                 stopFingerPam();
-            } else if (result == PamResult.Error) { // if timeout or etc..
-                tryFingerUnlock()
+            } else if (result == PamResult.Failed || result == PamResult.MaxTries) {
+                // A finger was read but not recognised. Keep trying briefly,
+                // then let the user retry from the fingerprint button.
+                if (root.fingerprintAttempts < 3)
+                    fingerRetryTimer.restart();
+            } else if (result == PamResult.Error) {
+                // pam_fprintd timed out waiting for a finger (for example
+                // while the screen is off). Do not restart it in a loop.
+                root.fingerprintAttempts = 0;
             }
         }
     }

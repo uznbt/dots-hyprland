@@ -43,4 +43,5 @@ Scope {
     PanelLoader { component: Overlay {} }
     PanelLoader { component: ScreenTranslator {} }
     PanelLoader { component: WallpaperSelector {} }
+    PanelLoader { component: WallpaperStrip {} }
 }
