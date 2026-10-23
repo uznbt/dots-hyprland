@@ -66,8 +66,14 @@ Scope {
     }
 
     function tryFingerUnlock() {
-        if (root.fingerprintsConfigured) {
+        if (root.fingerprintsConfigured && !fingerPam.active) {
             fingerPam.start();
+        }
+    }
+
+    function refreshFingerprintStatus() {
+        if (!fingerprintCheckProc.running) {
+            fingerprintCheckProc.running = true;
         }
     }
 
@@ -85,6 +91,9 @@ Scope {
             id: fingerprintOutputCollector
             onStreamFinished: {
                 root.fingerprintsConfigured = fingerprintOutputCollector.text.includes("Fingerprints for user");
+                if (root.fingerprintsConfigured && GlobalStates.screenLocked) {
+                    root.tryFingerUnlock();
+                }
             }
         }
         onExited: (exitCode, exitStatus) => {

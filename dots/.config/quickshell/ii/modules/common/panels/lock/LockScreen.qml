@@ -53,7 +53,9 @@ Scope {
             function onScreenLockedChanged() {
                 if (GlobalStates.screenLocked) {
                     lockContext.reset();
-                    lockContext.tryFingerUnlock();
+                    // Re-check on every lock so fingerprints enrolled after
+                    // Quickshell started are picked up without a restart.
+                    lockContext.refreshFingerprintStatus();
                 }
             }
         }
