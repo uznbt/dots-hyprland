@@ -21,6 +21,7 @@ Scope {
     property bool showFailure: false
     property bool fingerprintsConfigured: false
     property bool fingerprintPaused: false
+    property bool fingerPamStarting: false
     property int fingerprintAttempts: 0
     property var targetAction: LockContext.ActionEnum.Unlock
     property bool alsoInhibitIdle: false
@@ -42,6 +43,7 @@ Scope {
         root.clearText();
         root.unlockInProgress = false;
         root.fingerprintPaused = false;
+        root.fingerPamStarting = false;
         root.fingerprintAttempts = 0;
         stopFingerPam();
     }
@@ -70,17 +72,21 @@ Scope {
     }
 
     function tryFingerUnlock() {
-        if (root.fingerprintPaused || !root.fingerprintsConfigured || fingerPam.active)
+        if (root.fingerprintPaused || !root.fingerprintsConfigured
+                || fingerPam.active || root.fingerPamStarting)
             return;
         if (root.fingerprintAttempts >= 3)
             return;
 
         root.fingerprintAttempts += 1;
-        fingerPam.start();
+        root.fingerPamStarting = true;
+        if (!fingerPam.start())
+            root.fingerPamStarting = false;
     }
 
     function retryFingerUnlock() {
         root.fingerprintPaused = false;
+        root.fingerPamStarting = false;
         root.fingerprintAttempts = 0;
         root.tryFingerUnlock();
     }
@@ -105,6 +111,7 @@ Scope {
 
     function stopFingerPam() {
         fingerRetryTimer.stop();
+        root.fingerPamStarting = false;
         if (fingerPam.active) {
             fingerPam.abort();
         }
@@ -170,6 +177,7 @@ Scope {
         config: "fprintd.conf"
 
         onCompleted: result => {
+            root.fingerPamStarting = false;
             if (result == PamResult.Success) {
                 root.unlocked(root.targetAction);
                 stopFingerPam();
@@ -179,10 +187,17 @@ Scope {
                 if (root.fingerprintAttempts < 3)
                     fingerRetryTimer.restart();
             } else if (result == PamResult.Error) {
-                // pam_fprintd timed out waiting for a finger (for example
-                // while the screen is off). Do not restart it in a loop.
+                // pam_fprintd timed out waiting for a finger. Restart it while
+                // the lock screen is on; pauseFingerprint() stops this loop
+                // when the display goes to sleep.
                 root.fingerprintAttempts = 0;
+                if (!root.fingerprintPaused)
+                    fingerRetryTimer.restart();
             }
+        }
+
+        onError: error => {
+            root.fingerPamStarting = false;
         }
     }
 }
