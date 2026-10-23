@@ -154,15 +154,109 @@ restores Quickshell when it exits. Dependencies and test instructions are in
 
 ## Keybinds
 
+`Super` + `/` opens the in-shell cheatsheet, which is the quickest way to see
+the full active list. This fork also loads
+`~/.config/hypr/custom/keybinds.lua` after the defaults; the overrides shipped
+here make `Super` + `Tab` switch workspaces and add `Alt` + `Tab` window
+cycling.
+
+### Shell
+
 | Shortcut | Action |
 | --- | --- |
-| `Super` + `/` | Keybind / cheatsheet list |
-| `Super` + `Tab` | Toggle overview (workspace switcher) |
-| `Super` + `A` / `N` | Toggle left / right sidebar |
-| `Super` + `I` | Open settings in-shell |
+| `Super` + `/` | Cheatsheet |
+| `Super` + `A` | Toggle left sidebar |
+| `Super` + `N` | Toggle right sidebar |
 | `Super` + `M` | Media controls |
 | `Super` + `G` | Widget overlay |
-| `Super` + `Ctrl` + `Delete` | Session menu (log out / power off) |
+| `Super` + `K` | On-screen keyboard |
+| `Super` + `J` | Toggle bar |
+| `Super` + `P` | Display panel |
+| `Ctrl` + `Super` + `T` | Change wallpaper |
+| `Ctrl` + `Super` + `Alt` + `T` | Random wallpaper |
+| `Ctrl` + `Super` + `Shift` + `D` | Toggle light/dark mode |
+| `Ctrl` + `Super` + `P` | Cycle panel family |
+| `Ctrl` + `Super` + `R` | Restart widgets |
+| Double-tap `Super` | Toggle search |
+
+### Workspaces and windows
+
+| Shortcut | Action |
+| --- | --- |
+| `Super` + `Tab` | Next workspace |
+| `Super` + `Shift` + `Tab` | Previous workspace |
+| `Alt` + `Tab` | Focus next window |
+| `Shift` + `Alt` + `Tab` | Focus previous window |
+| `Super` + `1` … `0` | Focus workspace 1–10 |
+| `Super` + `Alt` + `1` … `0` | Send window to workspace 1–10 |
+| `Ctrl` + `Super` + `Left` / `Right` | Focus workspace left/right |
+| `Super` + `Shift` + `PageUp` / `PageDown` | Send window to workspace left/right |
+| `Super` + `S` | Toggle scratchpad |
+| `Super` + `Alt` + `S` | Send window to scratchpad |
+| `Ctrl` + `Super` + `M` | Toggle music workspace |
+| `Super` + arrow keys | Focus window in direction |
+| `Super` + `Shift` + arrow keys | Move window in direction |
+| `Super` + `Q` | Close window |
+| `Super` + `D` | Maximize window |
+| `Super` + `F` | Fullscreen |
+| `Super` + `Alt` + `F` | Fullscreen (spoof) |
+| `Super` + `Alt` + `Space` | Float/tile |
+| `Super` + `Alt` + `P` | Pin window |
+| `Super` + `Shift` + `Alt` + `Q` | Force-kill window |
+| `Super` + left-drag | Move window |
+| `Super` + right-drag | Resize window |
+| `Super` + `Equal` / `Minus` | Zoom in/out |
+
+### Utilities
+
+| Shortcut | Action |
+| --- | --- |
+| `Super` + `V` | Clipboard history |
+| `Super` + `.` | Emoji picker |
+| `Super` + `Shift` + `S` | Screen snip |
+| `Super` + `Shift` + `A` | Google Lens |
+| `Super` + `Shift` + `X` | OCR to clipboard |
+| `Super` + `Shift` + `T` | Translate screen content |
+| `Super` + `Shift` + `C` | Pick color |
+| `Super` + `Shift` + `R` | Record region (no sound) |
+| `Super` + `Shift` + `Alt` + `R` | Record screen (with sound) |
+| `Print` | Screenshot to clipboard |
+| `Ctrl` + `Print` | Screenshot to clipboard and file |
+| `Super` + `Shift` + `Alt` + right-click | AI summary of selected text |
+
+### Media
+
+| Shortcut | Action |
+| --- | --- |
+| `Super` + `Shift` + `B` | Previous track |
+| `Super` + `Shift` + `N` | Next track |
+| `Super` + `Shift` + `P` | Play/pause |
+| `Super` + `Shift` + `M` | Mute output |
+| `Super` + `Alt` + `M` | Mute microphone |
+| `XF86Audio*` / `XF86MonBrightness*` | Hardware media and brightness keys |
+
+### Apps
+
+| Shortcut | Action |
+| --- | --- |
+| `Super` + `Enter` | Terminal |
+| `Super` + `E` | File manager |
+| `Super` + `W` | Browser |
+| `Super` + `C` | Code editor |
+| `Super` + `X` | Text editor |
+| `Super` + `I` | Settings |
+| `Ctrl` + `Super` + `V` | Volume mixer |
+| `Ctrl` + `Shift` + `Esc` | Task manager |
+| `Ctrl` + `Super` + `Shift` + `Alt` + `W` | Office software |
+
+### Session
+
+| Shortcut | Action |
+| --- | --- |
+| `Super` + `L` | Lock |
+| `Super` + `Shift` + `L` | Sleep |
+| `Ctrl` + `Alt` + `Delete` | Session menu |
+| `Ctrl` + `Shift` + `Alt` + `Super` + `Delete` | Shut down |
 
 ## Memory profile
 
