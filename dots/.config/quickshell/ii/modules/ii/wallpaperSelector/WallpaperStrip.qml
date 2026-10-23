@@ -200,17 +200,9 @@ Scope {
                         path: Path {
                             startY: pathView.height / 2
 
-                            PathAttribute {
-                                name: "z"
-                                value: 0
-                            }
                             PathLine {
                                 x: pathView.width / 2
                                 relativeY: 0
-                            }
-                            PathAttribute {
-                                name: "z"
-                                value: 1
                             }
                             PathLine {
                                 x: pathView.width
@@ -228,7 +220,7 @@ Scope {
                             height: 218
                             scale: PathView.isCurrentItem ? 1.0 : 0.8
                             opacity: PathView.onPath ? 1.0 : 0.0
-                            z: PathView.isCurrentItem ? 2 : 1
+                            z: PathView.isCurrentItem ? 3 : 1
 
                             Behavior on scale {
                                 NumberAnimation {
